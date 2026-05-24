@@ -26,4 +26,4 @@ Caso possua uma placa de vídeo dedicada (NVIDIA) e queira rodar localmente no s
 ---
 
 ### Créditos e Agradecimentos
-Este projeto é um *fork* (derivação) do excelente projeto [ViralCutter](https://github.com/RafaelGodoyEbert/ViralCutter) criado por **Rafael Godoy**. Todo o crédito pelo núcleo de processamento, inteligência artificial e interface base vai para o criador original. Esta edição foca em parametrizar e direcionar a ferramenta para o contexto cristão/igrejas.
+Este projeto é um *fork* do excelente projeto [ViralCutter](https://github.com/RafaelGodoyEbert/ViralCutter) criado por **Rafael Godoy**. Todo o crédito pelo núcleo de processamento, inteligência artificial e interface base vai para o criador original. Esta edição foca em parametrizar e direcionar a ferramenta para o contexto cristão/igrejas.
