@@ -1153,7 +1153,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                 with gr.Column(scale=1):
                     outro_music_enabled_input = gr.Checkbox(
                         label=i18n("Ativar Música de Encerramento"),
-                        value=_outro_music_cfg.get("enabled", True),
+                        value=_outro_music_cfg.get("enabled", False),
                         info=i18n("Requer que o Outro/Encerramento esteja ativo."),
                     )
                     outro_music_file_input = gr.File(

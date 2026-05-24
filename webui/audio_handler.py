@@ -21,8 +21,8 @@ except ImportError:
 CONFIG_FILE = "audio_config.json"
 
 DEFAULT_OUTRO_MUSIC_CONFIG = {
-    "enabled": True,
-    "audio_file_path": "WEBUI_ASSETS/audio/Sacred_Reflections_1777226629_309f30c2_1777229952_464350b7_1777230878_e0cdcc3d_1777233772_9f2e0a90_1777242995_db6a232f_1777825066_69923054_1779040978_dd64358e.mp3",
+    "enabled": False,
+    "audio_file_path": None,
     "volume": 50,
     "start_from": "end",
     "fade_in_duration": 1,
@@ -32,7 +32,7 @@ DEFAULT_OUTRO_MUSIC_CONFIG = {
 
 DEFAULT_AUDIO_CONFIG = {
     "enabled": False,
-    "audio_file_path": "WEBUI_ASSETS/audio/Glass_on_the_Keys_1779040978_9d23bb01.mp3",
+    "audio_file_path": None,
     "base_volume": 12,
     "source_video_volume": 200.0,
     "loop_to_end": True,
