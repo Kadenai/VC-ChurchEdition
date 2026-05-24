@@ -1,0 +1,16 @@
+# Outras dependencias essenciais
+numpy<2.0
+g4f[all]
+yt-dlp
+ffmpeg-python
+whisperx
+mediapipe
+google-genai
+insightface
+gradio==6.9.0
+opencv-python
+psutil
+fastapi==0.135.1
+uvicorn==0.41.0
+deep-translator
+tqdm

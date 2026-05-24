@@ -1,0 +1,8 @@
+{
+    "enabled": true,
+    "watermark_image_path": "WEBUI_ASSETS/watermark/IP_Brotas_full_logo_white_1779639398_05bc7f69.png",
+    "position_x": 480,
+    "position_y": 0,
+    "scale": 15,
+    "opacity": 30
+}

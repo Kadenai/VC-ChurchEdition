@@ -1,0 +1,24 @@
+{
+    "enabled": false,
+    "audio_file_path": "WEBUI_ASSETS/audio/Glass_on_the_Keys_1779040978_9d23bb01.mp3",
+    "base_volume": 12,
+    "source_video_volume": 200.0,
+    "loop_to_end": true,
+    "fade_in_duration": 0.5,
+    "fade_out_duration": 0.5,
+    "crossfade_duration": 3,
+    "use_ending_volume": true,
+    "stop_before_outro": true,
+    "sync_with_outro": true,
+    "ending_volume": 20,
+    "ending_start_time": 10,
+    "outro_music": {
+        "enabled": true,
+        "audio_file_path": "WEBUI_ASSETS/audio/Sacred_Reflections_1777226629_309f30c2_1777229952_464350b7_1777230878_e0cdcc3d_1777233772_9f2e0a90_1777242995_db6a232f_1777825066_69923054_1779040978_dd64358e.mp3",
+        "volume": 50,
+        "start_from": "end",
+        "fade_in_duration": 1,
+        "fade_out_enabled": true,
+        "fade_out_duration": 1
+    }
+}

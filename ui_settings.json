@@ -1,0 +1,19 @@
+{
+    "video_quality": "best",
+    "translate_target": "None",
+    "use_youtube_subs": false,
+    "segments": 12,
+    "viral": true,
+    "themes": "",
+    "min_duration": 60,
+    "max_duration": 120,
+    "model": "large-v3-turbo",
+    "manual_mode": false,
+    "ai_backend": "gemini",
+    "ai_model_name": "gemini-3.5-flash",
+    "chunk_size": 70000,
+    "workflow": "Full",
+    "face_model": "static_center",
+    "face_mode": "auto",
+    "margin_h": 35
+}

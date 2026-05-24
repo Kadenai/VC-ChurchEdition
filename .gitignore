@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.log
+
+VIRALS/
+webui/PREVIEW/
+
+*.zip
+out_test_vid.mp4
+test_audio.mp3
+test_vid.mp4
+test_vid_no_audio.mp4
+
+.env
+.env.*
+!.env.example
