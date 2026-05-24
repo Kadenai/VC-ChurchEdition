@@ -8,7 +8,11 @@ Seja para extrair trechos de pregações, momentos de louvor ou mensagens impact
 
 A maneira mais fácil de usar o VC-ChurchEdition é através do Google Colab. Você não precisa de um computador potente, pois todo o processamento (e uso de placa de vídeo) acontece na nuvem do Google de forma gratuita!
 
-1. Abra o arquivo `ViralCutter.ipynb` diretamente no Google Colab, ou clique no botão abaixo (se disponível).
+<a href="https://colab.research.google.com/github/Kadenai/VC-ChurchEdition/blob/main/ViralCutter.ipynb">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
+
+1. Clique no botão azul **"Open In Colab"** acima para abrir a ferramenta.
 2. Siga as instruções simplificadas na tela.
 3. Seus vídeos serão salvos automaticamente no seu **Google Drive**.
 
