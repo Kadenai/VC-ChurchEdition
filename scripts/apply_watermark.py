@@ -31,7 +31,7 @@ def apply_watermark_to_video(input_video, image_path, x, y, scale, opacity, outp
         "-filter_complex", filter_complex,
         "-map", "[v]",
         "-map", "0:a?",
-        "-c:v", encoder, "-preset", preset, "-b:v", "5M",
+        "-c:v", encoder, "-preset", preset, "-b:v", "5M", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
         "-c:a", "copy",
         output_video
     ]

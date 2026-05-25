@@ -100,7 +100,7 @@ def compose_outro_with_image(outro_video, image_path, x, y, scale, output_path, 
             "-filter_complex", filter_complex,
             "-map", "[v]",
             "-map", "0:a?", "-map", "2:a", # map original audio, or silent audio if none
-            "-c:v", encoder, "-preset", preset, "-b:v", "5M",
+            "-c:v", encoder, "-preset", preset, "-b:v", "5M", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
             "-c:a", "aac", "-b:a", "192k",
             "-shortest", # stop at shortest to not let anullsrc go forever
             output_path
@@ -115,7 +115,7 @@ def compose_outro_with_image(outro_video, image_path, x, y, scale, output_path, 
             "-filter_complex", filter_complex,
             "-map", "[v]",
             "-map", "0:a?", "-map", "1:a",
-            "-c:v", encoder, "-preset", preset, "-b:v", "5M",
+            "-c:v", encoder, "-preset", preset, "-b:v", "5M", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
             "-c:a", "aac", "-b:a", "192k",
             "-shortest", 
             output_path
@@ -191,7 +191,7 @@ def append_outro_to_video(main_video, composed_outro, fade_duration, output_path
     cmd.extend([
         "-filter_complex", filter_complex,
         "-map", "[v]", "-map", "[a]",
-        "-c:v", encoder, "-preset", preset, "-b:v", "5M",
+        "-c:v", encoder, "-preset", preset, "-b:v", "5M", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
         "-c:a", "aac", "-b:a", "192k",
         output_path
     ])

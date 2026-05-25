@@ -110,7 +110,7 @@ def apply_source_volume_only(input_video, source_volume_factor, output_video):
         "-i", input_video,
         "-map", "0:v",
         "-map", "0:a",
-        "-c:v", "copy",
+        "-c:v", "copy", "-movflags", "+faststart",
         "-af", f"volume={source_volume_factor}",
         "-c:a", "aac", "-b:a", "192k",
         output_video
@@ -355,7 +355,7 @@ def apply_audio_to_video(input_video, audio_path, config, output_video):
     n_inputs = len(mix_labels)
     if n_inputs == 0:
         # No audio at all — just copy video
-        cmd.extend(["-map", "0:v", "-c:v", "copy", "-an", output_video])
+        cmd.extend(["-map", "0:v", "-c:v", "copy", "-movflags", "+faststart", "-an", output_video])
         result = subprocess.run(cmd, check=False, capture_output=True, text=True)
         return result.returncode == 0
     elif n_inputs == 1:
@@ -379,7 +379,7 @@ def apply_audio_to_video(input_video, audio_path, config, output_video):
     cmd.extend([
         "-map", "0:v",
         "-map", mix_out,
-        "-c:v", "copy",
+        "-c:v", "copy", "-movflags", "+faststart",
         "-c:a", "aac", "-b:a", "192k",
         output_video
     ])
