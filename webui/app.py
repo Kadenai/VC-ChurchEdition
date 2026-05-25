@@ -226,6 +226,10 @@ def run_viral_cutter(input_source, project_name, url, video_file, drive_file, se
         full_project_path = os.path.join(VIRALS_DIR, project_name)
         cmd.extend(["--project-path", full_project_path])
     elif input_source == "Google Drive File":
+        drive_root = "/content/drive/MyDrive" if os.path.exists("/content/drive/MyDrive") else os.path.abspath(".")
+        if drive_file and not os.path.isabs(drive_file):
+             drive_file = os.path.join(drive_root, drive_file)
+             
         if not drive_file or not os.path.exists(drive_file):
              yield i18n("Error: Google Drive file not found."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(visible=False), None
              return
@@ -794,7 +798,9 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     
                     url_input = gr.Textbox(label=i18n("YouTube URL"), placeholder="https://www.youtube.com/watch?v=...", visible=True)
                     video_upload = gr.File(label=i18n("Upload Video"), file_count="single", file_types=["video"], visible=False)
-                    drive_input = gr.Textbox(label=i18n("Caminho do Google Drive"), placeholder="/content/drive/MyDrive/video.mp4", visible=False)
+                    import os
+                    drive_root = "/content/drive/MyDrive" if os.path.exists("/content/drive/MyDrive") else os.path.abspath(".")
+                    drive_input = gr.FileExplorer(label=i18n("Selecione o vídeo do seu Google Drive"), root_dir=drive_root, glob="**/*.mp4", file_count="single", visible=False)
                     
                     with gr.Row():
                         video_quality_input = gr.Dropdown(choices=["best", "1080p", "720p", "480p"], label=i18n("Video Quality"), value=ui_state.get("video_quality", "best"))
