@@ -800,7 +800,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     video_upload = gr.File(label=i18n("Upload Video"), file_count="single", file_types=["video"], visible=False)
                     import os
                     drive_root = "/content/drive/MyDrive" if os.path.exists("/content/drive/MyDrive") else os.path.abspath(".")
-                    drive_input = gr.FileExplorer(label=i18n("Selecione o vídeo do seu Google Drive"), root_dir=drive_root, glob="**/*.mp4", file_count="single", visible=False)
+                    drive_input = gr.FileExplorer(label=i18n("Selecione o vídeo do seu Google Drive"), root_dir=drive_root, glob="**/*", file_count="single", visible=False)
                     
                     with gr.Row():
                         video_quality_input = gr.Dropdown(choices=["best", "1080p", "720p", "480p"], label=i18n("Video Quality"), value=ui_state.get("video_quality", "best"))
