@@ -193,7 +193,7 @@ def apply_experimental_preset(preset_name):
 # Subtitle logic moved to subtitle_handler.py
 
 
-def run_viral_cutter(input_source, project_name, url, video_file, segments, viral, themes, min_duration, max_duration, model, manual_mode, ai_backend, api_key, ai_model_name, chunk_size, workflow, face_model, face_mode, face_detect_interval, no_face_mode, 
+def run_viral_cutter(input_source, project_name, url, video_file, drive_file, segments, viral, themes, min_duration, max_duration, model, manual_mode, ai_backend, api_key, ai_model_name, chunk_size, workflow, face_model, face_mode, face_detect_interval, no_face_mode, 
                      face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, active_speaker_motion_threshold, active_speaker_motion_sensitivity, active_speaker_decay,
                      use_custom_subs, font_name, font_size, font_color, highlight_color, outline_color, outline_thickness, shadow_color, shadow_size, is_bold, is_italic, is_uppercase, vertical_pos, margin_h, alignment,
                      h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target, polish_subs):
@@ -225,6 +225,31 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
              return
         full_project_path = os.path.join(VIRALS_DIR, project_name)
         cmd.extend(["--project-path", full_project_path])
+    elif input_source == "Google Drive File":
+        if not drive_file or not os.path.exists(drive_file):
+             yield i18n("Error: Google Drive file not found."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(visible=False), None
+             return
+        
+        # Determine project name from filename
+        original_filename = os.path.basename(drive_file)
+        name_no_ext = os.path.splitext(original_filename)[0]
+        # Sanitize: Allow alphanumeric, space, dash, underscore
+        safe_name = "".join([c for c in name_no_ext if c.isalnum() or c in " _-"]).strip()
+        if not safe_name: safe_name = "Untitled_Drive"
+        
+        # Always append timestamp as requested
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        project_name_drive = f"{safe_name}_{timestamp}"
+        project_path = os.path.join(VIRALS_DIR, project_name_drive)
+        os.makedirs(project_path, exist_ok=True)
+        
+        target_path = os.path.join(project_path, "input.mp4")
+        shutil.copy(drive_file, target_path)
+        
+        cmd.extend(["--project-path", project_path])
+        # Skip YouTube subs as it is a local upload
+        cmd.append("--skip-youtube-subs")
+        
     elif input_source == "Upload Video":
         if not video_file:
              yield i18n("Error: No video file uploaded."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(visible=False), None
@@ -765,10 +790,11 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
         with gr.Tab(i18n("Create New")) as create_tab:
              with gr.Row():
                 with gr.Column(scale=1):
-                    input_source = gr.Radio([(i18n("YouTube URL"), "YouTube URL"), (i18n("Existing Project"), "Existing Project"), (i18n("Upload Video"), "Upload Video")], label=i18n("Input Source"), value="YouTube URL")
+                    input_source = gr.Radio([(i18n("YouTube URL"), "YouTube URL"), (i18n("Existing Project"), "Existing Project"), (i18n("Upload Video"), "Upload Video"), (i18n("Google Drive File"), "Google Drive File")], label=i18n("Input Source"), value="YouTube URL")
                     
                     url_input = gr.Textbox(label=i18n("YouTube URL"), placeholder="https://www.youtube.com/watch?v=...", visible=True)
                     video_upload = gr.File(label=i18n("Upload Video"), file_count="single", file_types=["video"], visible=False)
+                    drive_input = gr.Textbox(label=i18n("Caminho do Google Drive"), placeholder="/content/drive/MyDrive/video.mp4", visible=False)
                     
                     with gr.Row():
                         video_quality_input = gr.Dropdown(choices=["best", "1080p", "720p", "480p"], label=i18n("Video Quality"), value=ui_state.get("video_quality", "best"))
@@ -780,13 +806,15 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     
                     def on_source_change(source):
                         if source == "YouTube URL":
-                            return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(value="Full") 
+                            return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(value="Full") 
                         elif source == "Upload Video":
-                             return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), gr.update(value="Full")
+                             return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), gr.update(value="Full")
+                        elif source == "Google Drive File":
+                             return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), gr.update(value="Full")
                         else:
                             # Load projects
                             projs = library.get_existing_projects()
-                            return gr.update(visible=False), gr.update(choices=projs, visible=True), gr.update(visible=False), gr.update(value="Subtitles Only")
+                            return gr.update(visible=False), gr.update(choices=projs, visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(value="Subtitles Only")
                     
                     
                     with gr.Row():
@@ -910,7 +938,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                     
                     
                     # Update listeners now that all components are defined
-                    input_source.change(on_source_change, inputs=input_source, outputs=[url_input, project_selector, video_upload, workflow_input])
+                    input_source.change(on_source_change, inputs=input_source, outputs=[url_input, project_selector, video_upload, drive_input, workflow_input])
              
              with gr.Accordion(i18n("Advanced Face Settings"), open=False):
                  face_preset_input = gr.Dropdown(choices=[(i18n(k), k) for k in FACE_PRESETS.keys()], label=i18n("Configuration Presets"), value="Default (Balanced)", interactive=True)
@@ -1055,7 +1083,7 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
              
              # MUST pass all all new inputs to the run function
              start_btn.click(run_viral_cutter, inputs=[
-                 input_source, project_selector, url_input, video_upload, segments_input, viral_input, themes_input, min_dur_input, max_dur_input, 
+                 input_source, project_selector, url_input, video_upload, drive_input, segments_input, viral_input, themes_input, min_dur_input, max_dur_input, 
                  model_input, manual_mode_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input, 
                  workflow_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input, 
                  face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, focus_active_speaker_input, 
