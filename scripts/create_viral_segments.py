@@ -16,25 +16,6 @@ if sys.stdout and hasattr(sys.stdout, 'buffer'):
     except:
         pass
 
-# Tenta importar bibliotecas de IA opcionalmente
-try:
-    import google.generativeai as genai
-    HAS_GEMINI = True
-except ImportError:
-    HAS_GEMINI = False
-
-try:
-    import g4f
-    HAS_G4F = True
-except ImportError:
-    HAS_G4F = False
-
-try:
-    from llama_cpp import Llama
-    HAS_LLAMA_CPP = True
-except ImportError:
-    HAS_LLAMA_CPP = False
-
 def clean_json_response(response_text):
     """
     Limpa a resposta focando em encontrar o objeto JSON que contém a chave "segments".
@@ -216,7 +197,7 @@ def call_gemini(prompt, api_key, model_name='gemini-3.5-flash'):
     if model_name:
         models_to_try.append(model_name)
         
-    fallback_sequence = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-3.1-flash-lite-preview"]
+    fallback_sequence = ["gemini-3.5-flash", "gemini-3-flash-preview"]
     for m in fallback_sequence:
         if m not in models_to_try:
             models_to_try.append(m)
@@ -296,55 +277,6 @@ def call_gemini(prompt, api_key, model_name='gemini-3.5-flash'):
         print(f"[Gemini] Failed or quota exceeded for {current_model}. Triggering Fallback...")
         
     print("[Gemini] Total failure across all fallback models.")
-    return "{}"
-
-def call_g4f(prompt, model_name="gpt-4o-mini"):
-    if not HAS_G4F:
-        raise ImportError("A biblioteca 'g4f' não está instalada. Instale com: pip install g4f")
-    
-    max_retries = 3
-    base_wait = 5
-    
-    for attempt in range(max_retries):
-        try:
-            response = g4f.ChatCompletion.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            
-            if isinstance(response, dict):
-                if 'error' in response:
-                    raise Exception(f"API Error: {response['error']}")
-                if 'choices' in response and isinstance(response['choices'], list):
-                    if len(response['choices']) > 0:
-                         content = response['choices'][0].get('message', {}).get('content', '')
-                         if content:
-                             return content
-                if not response:
-                     raise ValueError("Empty Dict response")
-
-                return json.dumps(response)
-
-            if not response:
-                print(f"[WARN] G4F retornou resposta vazia. Tentativa {attempt+1}/{max_retries}")
-                time.sleep(base_wait)
-                continue
-            
-            if isinstance(response, str):
-                return response
-
-            try:
-                return json.dumps(response, ensure_ascii=False)
-            except:
-                return str(response)
-            
-        except Exception as e:
-            print(f"[WARN] Erro na API do G4F (Tentativa {attempt+1}/{max_retries}): {e}")
-            if attempt < max_retries - 1:
-                wait_time = base_wait * (2 ** attempt)
-                time.sleep(wait_time)
-            
-    print(f"Falha crítica após {max_retries} tentativas no G4F.")
     return "{}"
 
 def load_transcript(project_folder):
@@ -696,30 +628,28 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
                 final_end_time = final_start_time + tempo_maximo
                 duration = tempo_maximo
 
-            # --- Buffer: add margin for manual adjustment ---
-            BUFFER_SECONDS = 5
+            # --- Margem de segurança (buffer) ---
+            # Exportamos o corte LIMPO detectado pela IA. A margem de segurança
+            # (até 5s por lado) NÃO é aplicada de primeira — fica disponível como
+            # "saldo" e o usuário pode adicioná-la por corte na Biblioteca (botão
+            # Reprocessar), que recalcula a partir de original_start/original_end
+            # usando o input.mp4 completo. Assim nenhum vídeo sai com buffer embutido.
             original_start = final_start_time
             original_end = final_end_time
 
-            # Limit to transcript bounds
-            transcript_end = transcript_segments[-1]['end'] if transcript_segments else final_end_time
-            buffered_start = max(0, final_start_time - BUFFER_SECONDS)
-            buffered_end = min(original_end + BUFFER_SECONDS, transcript_end)
-            buffered_duration = buffered_end - buffered_start
-
-            # Construct Final Segment
+            # Construct Final Segment (corte limpo; margem fica como saldo)
             processed_segments.append({
                 "title": seg.get('title', 'Viral Segment'),
-                "start_time": buffered_start,
-                "end_time": buffered_end,
+                "start_time": original_start,
+                "end_time": original_end,
                 "original_start_time": original_start,
                 "original_end_time": original_end,
-                "buffer_start_used": BUFFER_SECONDS,
-                "buffer_end_used": BUFFER_SECONDS,
-                "hook": seg.get('title', ''), 
+                "buffer_start_used": 0,
+                "buffer_end_used": 0,
+                "hook": seg.get('title', ''),
                 "reasoning": seg.get('reasoning', ''),
                 "score": seg.get('score', 0),
-                "duration": buffered_duration
+                "duration": original_end - original_start
             })
 
         except Exception as e:
@@ -753,7 +683,7 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
     return final_result
 
 
-def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode="manual", api_key=None, project_folder="tmp", chunk_size_arg=None, model_name_arg=None):
+def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode="manual", api_key=None, project_folder="tmp", chunk_size_arg=None, model_name_arg=None, ai_duration=False):
     quantidade_de_virals = num_segments
 
     # 1. Load Transcript
@@ -774,10 +704,6 @@ def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode
             "api_key": "",
             "model": "gemini-3.5-flash",
             "chunk_size": 70000
-        },
-        "g4f": {
-            "model": "gpt-4o-mini",
-            "chunk_size": 2000
         }
     }
 
@@ -786,7 +712,6 @@ def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode
             with open(config_path, 'r', encoding='utf-8') as f:
                 loaded_config = json.load(f)
                 if "gemini" in loaded_config: config["gemini"].update(loaded_config["gemini"])
-                if "g4f" in loaded_config: config["g4f"].update(loaded_config["g4f"])
                 if "selected_api" in loaded_config: config["selected_api"] = loaded_config["selected_api"]
         except Exception as e:
             print(f"Erro ao ler api_config.json: {e}")
@@ -794,23 +719,13 @@ def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode
     # Config Vars
     current_chunk_size = 70000
     model_name = ""
-    
+
     if ai_mode == "gemini":
         cfg_chunk = config["gemini"].get("chunk_size", 70000)
         current_chunk_size = chunk_size_arg if chunk_size_arg and int(chunk_size_arg) > 0 else cfg_chunk
         cfg_model = config["gemini"].get("model", "gemini-3.5-flash")
         model_name = model_name_arg if model_name_arg else cfg_model
         if not api_key: api_key = config["gemini"].get("api_key", "")
-            
-    elif ai_mode == "g4f":
-        cfg_chunk = config["g4f"].get("chunk_size", 2000)
-        current_chunk_size = chunk_size_arg if chunk_size_arg and int(chunk_size_arg) > 0 else cfg_chunk
-        cfg_model = config["g4f"].get("model", "gpt-4o-mini")
-        model_name = model_name_arg if model_name_arg else cfg_model
-
-    elif ai_mode == "local":
-        current_chunk_size = chunk_size_arg if chunk_size_arg and int(chunk_size_arg) > 0 else 3000
-        model_name = model_name_arg if model_name_arg else ""
 
     system_prompt_template = ""
     if os.path.exists(prompt_path):
@@ -886,9 +801,38 @@ OUTPUT JSON ONLY:
     print(f"[DEBUG] Pedindo até {per_chunk_amount} candidato(s) por chunk ({num_chunks} chunks). Alvo final após dedup: {quantidade_de_virals}.")
 
     if viral_mode:
-        virality_instruction = f"""Analise a transcrição e identifique os segmentos mais profundos, impactantes ou encorajadores."""
+        virality_instruction = (
+            "Selecione APENAS os momentos de PICO do sermão — os que fariam alguém parar de rolar o feed.\n"
+            "Priorize, nesta ordem:\n"
+            "1. Frases de impacto: declarações ousadas, contraintuitivas ou que geram tensão (\"uau\").\n"
+            "2. Verdades espirituais profundas ditas de forma memorável e CITÁVEL.\n"
+            "3. Histórias/ilustrações vívidas com início, clímax e desfecho.\n"
+            "4. Momentos de convicção/confronto OU de forte encorajamento e esperança.\n"
+            "5. Chamados claros à decisão ou à ação.\n"
+            "Seja EXIGENTE: prefira devolver POUCOS cortes excelentes a muitos medianos. "
+            "Dê notas (score) honestas — reserve 90+ apenas para momentos realmente fortes."
+        )
     else:
-        virality_instruction = f"""Analise a transcrição e identifique os melhores segmentos focados estritamente nos seguintes temas: {themes}."""
+        virality_instruction = (
+            "Selecione os melhores momentos do sermão focados ESTRITAMENTE nos seguintes temas/assuntos: "
+            f"{themes}.\n"
+            "Dentro desses temas, priorize frases de impacto, verdades memoráveis e citáveis, "
+            "histórias vívidas e chamados à ação. Seja exigente com a qualidade."
+        )
+
+    # Instrução de duração: com teto de segurança (IA decide) ou faixa fixa mín–máx.
+    if ai_duration:
+        duration_instruction = (
+            "DURAÇÃO: NÃO há tempo mínimo — priorize entregar a ideia completa, do gancho à conclusão. "
+            f"O trecho pode ir de poucos segundos até no MÁXIMO {tempo_maximo}s. "
+            "Se a ideia não couber nesse teto, escolha um recorte menor e completo em vez de cortar no meio. "
+            "Nunca termine no meio de uma frase ou de um versículo."
+        )
+    else:
+        duration_instruction = (
+            f"DURAÇÃO: cada trecho DEVE ter entre {tempo_minimo}s e {tempo_maximo}s. "
+            "Use as marcas (XXs) para estimar a duração."
+        )
 
     output_texts = []
     for i, chunk in enumerate(chunks):
@@ -900,6 +844,7 @@ OUTPUT JSON ONLY:
             prompt = system_prompt_template.format(
                 context_instruction=context_instruction,
                 virality_instruction=virality_instruction,
+                duration_instruction=duration_instruction,
                 min_duration=tempo_minimo,
                 max_duration=tempo_maximo,
                 transcript_chunk=chunk,
@@ -910,6 +855,7 @@ OUTPUT JSON ONLY:
             prompt = system_prompt_template
             prompt = prompt.replace("{context_instruction}", context_instruction)
             prompt = prompt.replace("{virality_instruction}", virality_instruction)
+            prompt = prompt.replace("{duration_instruction}", duration_instruction)
             prompt = prompt.replace("{min_duration}", str(tempo_minimo))
             prompt = prompt.replace("{max_duration}", str(tempo_maximo))
             prompt = prompt.replace("{transcript_chunk}", chunk)
@@ -923,6 +869,7 @@ OUTPUT JSON ONLY:
         full_prompt = system_prompt_template
         full_prompt = full_prompt.replace("{context_instruction}", "Full Video Transcript Analysis")
         full_prompt = full_prompt.replace("{virality_instruction}", virality_instruction)
+        full_prompt = full_prompt.replace("{duration_instruction}", duration_instruction)
         full_prompt = full_prompt.replace("{min_duration}", str(tempo_minimo))
         full_prompt = full_prompt.replace("{max_duration}", str(tempo_maximo))
         full_prompt = full_prompt.replace("{transcript_chunk}", content)
@@ -938,33 +885,6 @@ OUTPUT JSON ONLY:
 
     print(f"Processando {len(output_texts)} chunks usando modo: {ai_mode.upper()}")
 
-    local_llm_instance = None
-    if ai_mode == "local":
-        if not HAS_LLAMA_CPP:
-            print("Error: llama-cpp-python not installed. Please install it to use Local mode.")
-            return {"segments": []}
-            
-        models_dir = os.path.join(base_dir, 'models')
-        model_path = os.path.join(models_dir, model_name)
-        if not os.path.exists(model_path):
-             if os.path.exists(model_name):
-                 model_path = model_name
-             else:
-                 print(f"Error: Model not found at {model_path}")
-                 return {"segments": []}
-        
-        print(f"[INFO] Loading Local Model: {os.path.basename(model_path)} (This may take a while)...")
-        try:
-            local_llm_instance = Llama(
-                model_path=model_path,
-                n_gpu_layers=-1, 
-                n_ctx=8192,
-                verbose=False
-            )
-        except Exception as e:
-            print(f"Failed to load model: {e}")
-            return {"segments": []}
-
     for i, prompt in enumerate(output_texts):
         response_text = ""
         manual_prompt_path = os.path.join(project_folder, f"prompt_part_{i+1}.txt")
@@ -974,40 +894,7 @@ OUTPUT JSON ONLY:
         except Exception as e:
             print(f"[ERRO] Falha ao salvar prompt.txt: {e}")
         
-        if ai_mode == "manual":
-            print(f"\n[INFO] O prompt foi salvo em: {manual_prompt_path}")
-            print("\n" + "="*60)
-            print(f"CHUNK {i+1}/{len(output_texts)}")
-            print("="*60)
-            print("COPIE O PROMPT ABAIXO (OU DO ARQUIVO GERADO) E COLE NA SUA IA PREFERIDA:")
-            print("-" * 20)
-            print(prompt)
-            print("-" * 20)
-            print("="*60)
-            print("Cole o JSON de resposta abaixo e pressione ENTER.")
-            print("Dica: Se o JSON tiver múltiplas linhas, tente colar tudo de uma vez ou minificado.")
-            print("Se preferir, digite 'file' para ler de um arquivo 'tmp/response.json'.")
-            
-            user_input = input("JSON ou 'file': ")
-            
-            if user_input.lower() == 'file':
-                try:
-                    response_json_path = os.path.join(project_folder, 'response.json')
-                    with open(response_json_path, 'r', encoding='utf-8') as rf:
-                        response_text = rf.read()
-                except FileNotFoundError:
-                    print(f"Arquivo {response_json_path} não encontrado.")
-            else:
-                response_text = user_input
-                if response_text.strip().startswith("{") and not response_text.strip().endswith("}"):
-                    print("Parece incompleto. Cole o resto e dê Enter (ou Ctrl+C para cancelar):")
-                    try:
-                        rest = sys.stdin.read() 
-                        response_text += rest
-                    except:
-                        pass
-                        
-        elif ai_mode == "manual_webui":
+        if ai_mode == "manual_webui":
             print(f"\n[INFO] O prompt completo foi salvo em: prompt_full.txt na pasta do projeto.")
             print("\n[PAUSE_FOR_MANUAL_WEBUI]")
             return {"segments": [], "paused_for_manual": True}
@@ -1015,24 +902,6 @@ OUTPUT JSON ONLY:
         elif ai_mode == "gemini":
             print(f"Enviando chunk {i+1} para o Gemini (Model: {model_name})...")
             response_text = call_gemini(prompt, api_key, model_name=model_name)
-        elif ai_mode == "g4f":
-            print(f"Enviando chunk {i+1} para o G4F (Model: {model_name})...")
-            response_text = call_g4f(prompt, model_name=model_name)
-        elif ai_mode == "local" and local_llm_instance:
-            print(f"Processing chunk {i+1} with Local LLM...")
-            try:
-                output = local_llm_instance.create_chat_completion(
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant that outputs only JSON."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    max_tokens=4096,
-                    temperature=0.7
-                )
-                response_text = output['choices'][0]['message']['content']
-            except Exception as e:
-                print(f"Error evaluating local model: {e}")
-                response_text = "{}"
 
         # --- Save RAW Response for Debugging ---
         try:
@@ -1061,11 +930,14 @@ OUTPUT JSON ONLY:
     all_raw_segments = dedupe_raw_candidates(all_raw_segments)
     print(f"[DEBUG] Total de candidatos após dedupe inter-chunk: {len(all_raw_segments)}")
 
-    # Call the alignment / processing logic
+    # Call the alignment / processing logic.
+    # Com "IA decide a duração", não há mínimo: passamos 0 para desativar a trava
+    # que estenderia cortes curtos. O máximo (tempo_maximo) segue como teto de segurança.
+    proc_min = 0 if ai_duration else tempo_minimo
     return process_segments(
         all_raw_segments,
         transcript_segments,
-        tempo_minimo,
+        proc_min,
         tempo_maximo,
         output_count=quantidade_de_virals
     )

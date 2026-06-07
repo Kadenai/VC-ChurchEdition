@@ -1,73 +1,56 @@
 import os
 import sys
 
-# Necessary if this file is imported from app.py which is in the same dir but we need root for i18n
+# Necessário porque este arquivo é importado por app.py (mesma pasta), mas o i18n
+# vive na raiz do projeto.
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 WORKING_DIR = os.path.dirname(CURRENT_DIR)
 sys.path.append(WORKING_DIR)
 
 from i18n.i18n import I18nAuto
-i18n = I18nAuto()
+i18n = I18nAuto(language="pt_BR")
 
-badges = """
-<div style="display: flex; align-items: center; justify-content: center;">
-<span style="margin-right: 5px;"> 
+# Ícone de marca (tesoura + play em esmeralda), inline para funcionar no Colab
+# sem depender de arquivo externo carregar.
+_BRAND_ICON = """
+<svg width="40" height="40" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <circle cx="24" cy="24" r="22" fill="rgba(255,255,255,0.16)" stroke="rgba(255,255,255,0.5)" stroke-width="1.5"/>
+  <path d="M20 19l12 5-12 5V19z" fill="#fff"/>
+  <circle cx="15" cy="16" r="3.2" stroke="#fff" stroke-width="2" fill="none"/>
+  <circle cx="15" cy="32" r="3.2" stroke="#fff" stroke-width="2" fill="none"/>
+  <line x1="17.8" y1="17.6" x2="30" y2="26" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+  <line x1="17.8" y1="30.4" x2="30" y2="22" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+</svg>
+"""
 
-[ ![GitHub](https://img.shields.io/badge/github-%23121011.svg?style=for-the-badge&logo=github&logoColor=white) ](https://github.com/rafaelGodoyEbert)
- 
-</span>
-<span style="margin-right: 5px;"> 
-
-[ ![X](https://img.shields.io/badge/X-%23000000.svg?style=for-the-badge&logo=X&logoColor=white) ](https://twitter.com/GodoyEbert)
- 
-</span>
-<span style="margin-right: 5px;"> 
-
-[ ![Instagram](https://img.shields.io/badge/Instagram-%23E4405F.svg?style=for-the-badge&logo=Instagram&logoColor=white) ](https://www.instagram.com/rafael.godoy.ebert)
- 
-</span>
-
-<!-- ÍCONE DO COLAB ADICIONADO AQUI -->
-<span style="margin-right: 5px;">
-
-[ ![Open In Colab](https://img.shields.io/badge/Open%20in%20Colab-%23F9AB00.svg?style=for-the-badge&logo=googlecolab&logoColor=white) ]("https://colab.research.google.com/drive/1UZKzeqjIeEyvq9nPx7s_4mU6xlkZQn_R")
-
-</span>
-<!-- FIM DA ADIÇÃO -->
-
-<span>
-
-[![](https://dcbadge.limes.pink/api/server/tAdPHFAbud)](https://discord.gg/tAdPHFAbud)
-
-</span>
+# Cabeçalho principal (faixa com gradiente esmeralda + brilho — classes em styles.py)
+header_html = f"""
+<div class="vc-header">
+  <h1 class="vc-brand">{_BRAND_ICON}<span>Viral Cutter<span class="vc-edition">CHURCH EDITION</span></span></h1>
+  <p class="vc-tagline">{i18n('Transforme sermões em cortes prontos para as redes sociais.')}</p>
 </div>
 """
 
-description = f"""
-<div style="text-align: center;">
+# Crédito discreto (GPL v3 exige preservar a atribuição) + ajuda da chave de IA.
+about_html = f"""
+<div style="line-height:1.7; font-size:0.95rem; color:#355A4C;">
+  <h3 style="font-family:'Poppins',sans-serif; color:#08281D; margin-bottom:6px;">Viral Cutter · Church Edition</h3>
+  <p>{i18n('Edição feita para igrejas: transforma vídeos longos de cultos e pregações em cortes verticais com legendas, prontos para Reels, Shorts e TikTok.')}</p>
 
-<h1>ViralCutter</h1>
-<p style="font-size: 1.1em; margin-bottom: 20px;">{i18n('Bem-vindo ao ViralCutter! A ferramenta definitiva para transformar vídeos longos em clipes virais com o poder da IA.')}</p>
+  <div style="margin-top:18px; padding:16px 18px; background:#D6F2E2; border:1px solid #C3EDD6; border-left:4px solid #14C18E; border-radius:12px;">
+    <h4 style="font-family:'Poppins',sans-serif; color:#0A7A5C; margin:0 0 8px 0;">🔑 {i18n('Como conseguir a chave de IA (grátis)')}</h4>
+    <ol style="margin:0; padding-left:20px; color:#355A4C;">
+      <li>{i18n('Acesse')} <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#0E9D77; font-weight:600;">aistudio.google.com/app/apikey</a> {i18n('e entre com sua conta Google.')}</li>
+      <li>{i18n('Clique em "Criar chave de API" (Create API key).')}</li>
+      <li>{i18n('Copie a chave gerada (começa com "AIza...").')}</li>
+      <li>{i18n('Cole no campo "Chave de IA" na aba Criar Cortes. Pronto — fica salva.')}</li>
+    </ol>
+  </div>
 
-<div style="display: inline-block; text-align: left; background: rgba(255, 255, 255, 0.05); padding: 20px; border-radius: 10px; margin-bottom: 20px;">
-<p style="margin-bottom: 10px;"><strong>{i18n('Aqui você pode:')}</strong></p>
-<ul style="margin: 0; padding-left: 20px;">
-<li>✂️ <strong>{i18n('Cortes Automáticos')}</strong>: {i18n('Identifique e corte os melhores momentos baseado em viralidade.')}</li>
-<li>📝 <strong>{i18n('Legendas Dinâmicas')}</strong>: {i18n('Crie legendas estéticas no padrão Church Clear automaticamente.')}</li>
-<li>🤖 <strong>{i18n('IA Avançada')}</strong>: {i18n('Suporte integrado para')} <strong>Gemini</strong> e <strong>G4F</strong>.</li>
-<li>📱 <strong>{i18n('Foco em Vertical')}</strong>: {i18n('Detecção facial inteligente para vídeos verticais (TikTok/Shorts/Reels).')}</li>
-</ul>
-</div>
-
-<br>
-<div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
-    <a href='https://www.youtube.com/@aihubbrasil' target='_blank'>
-        <img src="https://img.shields.io/badge/AI_HUB_Brasil-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Youtube do AI HUB Brasil">
-    </a>
-    <a href='https://www.youtube.com/@godoyy' target='_blank'>
-        <img src="https://img.shields.io/badge/Canal_Pessoal_Godoyy-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Canal Pessoal Godoyy">
-    </a>
-</div>
-<br>{i18n('Este projeto foi desenvolvido para a comunidade do AI HUB Brasil.')}
+  <p style="margin-top:18px; font-size:0.85rem; color:#88A99A;">
+    {i18n('Baseado no projeto de código aberto ViralCutter, de Rafael Godoy')}
+    (<a href="https://github.com/rafaelGodoyEbert/ViralCutter" target="_blank" style="color:#0E9D77;">GitHub</a>),
+    {i18n('licenciado sob a GNU GPL v3. Esta é uma versão modificada para uso em igrejas.')}
+  </p>
 </div>
 """

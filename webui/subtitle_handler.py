@@ -172,11 +172,6 @@ def render_preview_video(font, size, color, highlight, outline, outline_thick, s
                          h_size, w_block, gap, mode, under, strike, border_s, vert_pos, margin_h, align, remove_punc):
     # Helper to convert HEX to ASS color &HBBGGRR&
     def hex_to_ass(h):
-        try:
-            with open("debug_preview.log", "a") as f:
-                f.write(f"PREVIEW INPUT: '{h}'\n")
-        except: pass
-        
         if not h: return "&H00FFFFFF&"
         
         hex_clean = h.lstrip('#').strip()

@@ -1,4 +1,5 @@
 import os
+import shutil
 import json
 import urllib.parse
 import html
@@ -7,6 +8,14 @@ try:
     from media_utils import build_file_url, build_file_url_candidates
 except ImportError:
     from webui.media_utils import build_file_url, build_file_url_candidates
+try:
+    import render_state
+except ImportError:
+    from webui import render_state
+try:
+    from theme import PALETTE
+except ImportError:
+    from webui.theme import PALETTE
 
 # Setup Virals Dir relative to this file
 # This file is in webui/library.py
@@ -15,7 +24,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 import sys
 sys.path.append(BASE_DIR)
 from i18n.i18n import I18nAuto
-i18n = I18nAuto()
+i18n = I18nAuto(language="pt_BR")
 
 VIRALS_DIR = os.path.join(BASE_DIR, "VIRALS")
 
@@ -58,6 +67,128 @@ def get_existing_projects():
 def refresh_projects():
     projs = get_existing_projects()
     return gr.update(choices=projs, value=None)
+
+
+# ---------------------------------------------------------------------------
+# Limpeza de "lixo" (arquivos gerados). Apaga SOMENTE o lixo óbvio e nunca
+# toca em: a pasta "Cortes IPB" (fica fora do projeto, no Desktop), no código,
+# .venv, models, WEBUI_ASSETS (assets enviados), *_config.json, ui_settings.json,
+# api_config.json, nem no backup VC-ChurchEdition.
+# ---------------------------------------------------------------------------
+def _human_size(n):
+    n = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024 or unit == "TB":
+            return f"{int(n)} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+
+def _path_size(path):
+    if os.path.isfile(path):
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return 0
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for f in files:
+            try:
+                total += os.path.getsize(os.path.join(root, f))
+            except OSError:
+                pass
+    return total
+
+def _is_safe_to_delete(p):
+    """Defesa em profundidade: só permite apagar DENTRO do projeto e nunca as
+    pastas-raiz importantes (raiz, VIRALS, código, .venv, models, WEBUI_ASSETS,
+    VC-ChurchEdition)."""
+    ap = os.path.abspath(p)
+    base = os.path.abspath(BASE_DIR)
+    if not (ap == base or ap.startswith(base + os.sep)):
+        return False
+    protected_exact = {base, os.path.abspath(VIRALS_DIR)}
+    protected_exact |= {os.path.abspath(os.path.join(base, d)) for d in ("scripts", "webui", "i18n")}
+    if ap in protected_exact:
+        return False
+    forbidden_roots = [os.path.abspath(os.path.join(base, d))
+                       for d in (".venv", "models", "VC-ChurchEdition", "WEBUI_ASSETS")]
+    for fr in forbidden_roots:
+        if ap == fr or ap.startswith(fr + os.sep):
+            return False
+    return True
+
+def get_garbage_targets():
+    """Lista (somente) o 'lixo óbvio' a ser apagado."""
+    targets = []
+    # 1) Todos os projetos/arquivos dentro de VIRALS
+    if os.path.isdir(VIRALS_DIR):
+        for name in sorted(os.listdir(VIRALS_DIR)):
+            targets.append(os.path.join(VIRALS_DIR, name))
+    # 2) Vídeos de teste/saída e temporários soltos na raiz
+    for name in ("out_test_vid.mp4", "test_vid.mp4", "test_vid_no_audio.mp4",
+                 "test_audio.mp3", "temp_subtitle_config.json"):
+        p = os.path.join(BASE_DIR, name)
+        if os.path.exists(p):
+            targets.append(p)
+    # 3) Previews do WebUI
+    preview_dir = os.path.join(BASE_DIR, "webui", "PREVIEW")
+    if os.path.isdir(preview_dir):
+        for name in sorted(os.listdir(preview_dir)):
+            targets.append(os.path.join(preview_dir, name))
+    # 4) Caches __pycache__ do projeto (nunca os do .venv)
+    for sub in ("", "scripts", "webui", "i18n"):
+        p = os.path.join(BASE_DIR, sub, "__pycache__")
+        if os.path.isdir(p):
+            targets.append(p)
+    # Filtro de segurança final
+    return [t for t in targets if _is_safe_to_delete(t)]
+
+def preview_garbage():
+    """Retorna (texto_para_exibir, lista_de_alvos) SEM apagar nada."""
+    targets = get_garbage_targets()
+    if not targets:
+        return i18n("Nada para limpar — já está tudo limpo. ✨"), []
+    lines = []
+    total = 0
+    for p in targets:
+        sz = _path_size(p)
+        total += sz
+        kind = "[pasta]" if os.path.isdir(p) else "[arquivo]"
+        rel = os.path.relpath(p, BASE_DIR)
+        lines.append(f"  {kind} {rel}  ({_human_size(sz)})")
+    header = (
+        f"{len(targets)} item(ns) serão apagados — {_human_size(total)} no total.\n"
+        "NÃO serão tocados: a pasta 'Cortes IPB', seus assets enviados, "
+        "as configurações e a chave de API.\n\n"
+    )
+    return header + "\n".join(lines), targets
+
+def clean_garbage():
+    """Apaga o lixo óbvio (re-escaneia no momento do clique). Retorna relatório."""
+    targets = get_garbage_targets()
+    if not targets:
+        return i18n("Nada para limpar — já está tudo limpo. ✨")
+    deleted = 0
+    freed = 0
+    errors = []
+    for p in targets:
+        if not _is_safe_to_delete(p):  # trava redundante por segurança
+            continue
+        try:
+            sz = _path_size(p)
+            if os.path.isdir(p):
+                shutil.rmtree(p)
+            else:
+                os.remove(p)
+            freed += sz
+            deleted += 1
+        except Exception as e:
+            errors.append(f"{os.path.relpath(p, BASE_DIR)}: {e}")
+    os.makedirs(VIRALS_DIR, exist_ok=True)  # mantém a pasta VIRALS (vazia)
+    msg = f"✅ Limpeza concluída: {deleted} item(ns) apagados, {_human_size(freed)} liberados."
+    if errors:
+        msg += ("\n\n⚠️ Alguns itens não puderam ser apagados (talvez em uso por outro "
+                "programa):\n" + "\n".join(errors[:20]))
+    return msg
 
 def generate_project_gallery(project_path_name, is_full_path=False):
     """
@@ -105,14 +236,13 @@ def generate_project_gallery(project_path_name, is_full_path=False):
             render_segments = segments_list[:GALLERY_MAX_CARDS]
             limit_notice = (
                 f'<div style="padding: 8px 12px; margin: 0 6px 12px 6px; '
-                f'border: 1px solid #3f3f46; border-radius: 8px; color: #d4d4d8; '
-                f'background: #18181b;">'
+                f'border: 1px solid {PALETTE["border_strong"]}; border-radius: 10px; color: {PALETTE["primary_deeper"]}; '
+                f'background: {PALETTE["surface_soft"]};">'
                 f'{i18n("Mostrando os primeiros {} de {} segmentos no Colab para evitar travamentos.").format(GALLERY_MAX_CARDS, total_segments)}'
                 f'</div>'
             )
         
         for i, seg in enumerate(render_segments):
-            export_link = ""
             title = seg.get("title", f"{i18n('Segment')} {i+1}")
             score = seg.get("score", "N/A")
             description = seg.get("description", i18n("No description available."))
@@ -174,7 +304,7 @@ def generate_project_gallery(project_path_name, is_full_path=False):
                             Your browser does not support the video tag.
                         </video>
                         """
-                         download_link = f'<a href="{video_src}" target="_blank" download="{os.path.basename(video_path)}" style="color: #aaa; display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s;" title="Download" onmouseover="this.style.color=\'#fff\'" onmouseout="this.style.color=\'#aaa\'"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>'
+                         download_link = f'<a href="{video_src}" target="_blank" download="{os.path.basename(video_path)}" style="color: #64748B; display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s;" title="Download" onmouseover="this.style.color=\'#059669\'" onmouseout="this.style.color=\'#64748B\'"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>'
 
                     else:
                         # Use Relative Path through /virals mount
@@ -201,59 +331,24 @@ def generate_project_gallery(project_path_name, is_full_path=False):
                             """
                             
                             
-                            download_link = f'<a href="{video_src}" download="{os.path.basename(video_path)}" style="color: #aaa; display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s;" title="Download" onmouseover="this.style.color=\'#fff\'" onmouseout="this.style.color=\'#aaa\'"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>'
+                            download_link = f'<a href="{video_src}" download="{os.path.basename(video_path)}" style="color: #64748B; display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s;" title="Download" onmouseover="this.style.color=\'#059669\'" onmouseout="this.style.color=\'#64748B\'"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>'
                             
-                            # Export XML Link
-                            # project_path_name might be full path or folder name
-                            proj_name_api = urllib.parse.quote(os.path.basename(project_path_name), safe="")
-                            
-                            def make_export_btn(fmt, label, color_hover, svg_path):
-                                fmt_q = urllib.parse.quote(str(fmt), safe="")
-                                src = f"/export_xml_api?project={proj_name_api}&segment={i}&format={fmt_q}"
-                                return f'<a href="{src}" target="_blank" style="color: #aaa; display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s;" title="{label}" onmouseover="this.style.color=\'{color_hover}\'" onmouseout="this.style.color=\'#aaa\'"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{svg_path}</svg></a>'
-
-                            # Premiere (Pr)
-                            export_pr = make_export_btn("premiere", "Export Premiere XML (Split Screen – known bug)", "#d064ff", '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M9 15h6"></path><path d="M12 12v6"></path>')
-                            
-                            # Resolve (Dv)
-                            # export_dv = make_export_btn("resolve", "Export DaVinci Resolve XML", "#ff6464", '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><circle cx="12" cy="14" r="3"></circle>')
-                            
-                            # Final Cut (Fc)
-                            # export_fc = make_export_btn("final-cut-pro", "Export FCP XML", "#64d0ff", '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M10 12l4 2l-4 2z"></path>')
-
-                            export_link = f"{export_pr}" #{export_dv}{export_fc}"
-
                         else:
-                            video_tag = f'<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #222; color: #666;"><span>⚠️</span><br>{i18n("External Video")}</div>'
+                            video_tag = f'<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #F1F5F9; color: #94A3B8;"><span>⚠️</span><br>{i18n("External Video")}</div>'
                 except Exception as e:
-                    video_tag = f'<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #222; color: #666;"><span>⚠️</span><br>{i18n("Error: {}").format(str(e))}</div>'
+                    video_tag = f'<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #F1F5F9; color: #94A3B8;"><span>⚠️</span><br>{i18n("Error: {}").format(str(e))}</div>'
 
             else:
-                video_tag = f'<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #222; color: #666;"><span>⚠️</span><br>{i18n("Not Found")}</div>'
+                video_tag = f'<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #F1F5F9; color: #94A3B8;"><span>⚠️</span><br>{i18n("Not Found")}</div>'
             
             # Score
-            score_color = "#22c55e"
+            score_color = PALETTE["primary_deep"]
             try:
                 if isinstance(score, int) or (isinstance(score, str) and score.isdigit()):
                     val = int(score)
-                    if val < 70: score_color = "#ef4444" 
-                    elif val < 85: score_color = "#eab308"
+                    if val < 70: score_color = PALETTE["error"]
+                    elif val < 85: score_color = PALETTE["warning"]
             except: pass
-
-            # Audio Button
-            if video_path:
-                try:
-                    abs_video = os.path.abspath(video_path)
-                    encoded_abs = urllib.parse.quote(abs_video, safe="")
-                    # SVG is a musical note icon
-                    audio_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>'
-                    audio_btn_title = i18n("Aplicar Áudio BGM")
-                    escaped_audio_btn_title = html.escape(audio_btn_title, quote=True)
-                    audio_btn = f'<button type="button" class="apply-audio-btn" data-video-path="{encoded_abs}" style="color: #aaa; display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s; text-decoration: none; cursor: pointer; background: transparent; border: none; margin: 0;" title="{escaped_audio_btn_title}" aria-label="{escaped_audio_btn_title}">{audio_svg}</button>'
-                except:
-                    audio_btn = ""
-            else:
-                audio_btn = ""
 
             # Polish Subs Button (AI correction for this segment's subtitles)
             try:
@@ -261,7 +356,7 @@ def generate_project_gallery(project_path_name, is_full_path=False):
                 polish_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"></path><path d="M20 3v4"></path><path d="M22 5h-4"></path><path d="M4 17v2"></path><path d="M5 18H3"></path></svg>'
                 polish_btn_title = i18n("Corrigir legenda com IA")
                 escaped_polish_title = html.escape(polish_btn_title, quote=True)
-                polish_btn = f'<button type="button" class="polish-subs-btn" data-project="{proj_name_polish}" data-segment="{i}" style="color: #aaa; display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s; cursor: pointer; background: transparent; border: none; margin: 0;" title="{escaped_polish_title}" aria-label="{escaped_polish_title}">{polish_svg}</button>'
+                polish_btn = f'<button type="button" class="polish-subs-btn" data-project="{proj_name_polish}" data-segment="{i}" style="color: #64748B; display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s; cursor: pointer; background: transparent; border: none; margin: 0;" title="{escaped_polish_title}" aria-label="{escaped_polish_title}">{polish_svg}</button>'
             except Exception:
                 polish_btn = ""
 
@@ -275,18 +370,18 @@ def generate_project_gallery(project_path_name, is_full_path=False):
                 saldo_end = 5 - buf_end
                 proj_name_buffer = urllib.parse.quote(os.path.basename(project_path_name), safe="")
 
-                input_style = "width: 44px; height: 26px; background: #1a1a1a; color: #e5e5e5; border: 1px solid #444; border-radius: 5px; text-align: center; font-size: 13px; font-family: sans-serif; -moz-appearance: textfield;"
-                label_style = "color: #aaa; font-size: 11px; font-family: sans-serif; white-space: nowrap;"
-                saldo_style = "color: #666; font-size: 10px; font-family: sans-serif; white-space: nowrap;"
+                input_style = f"width: 44px; height: 26px; background: #FFFFFF; color: {PALETTE['text']}; border: 1px solid {PALETTE['border_strong']}; border-radius: 5px; text-align: center; font-size: 13px; font-family: sans-serif; -moz-appearance: textfield;"
+                label_style = f"color: {PALETTE['text_soft']}; font-size: 11px; font-family: sans-serif; white-space: nowrap;"
+                saldo_style = f"color: {PALETTE['text_muted']}; font-size: 10px; font-family: sans-serif; white-space: nowrap;"
                 row_style = "display: flex; align-items: center; gap: 6px; justify-content: space-between;"
 
                 # Unique IDs for JS to find sibling inputs
                 uid = f"buf_{i}"
 
                 buffer_control_html = f'''
-                    <div style="margin-top: 8px; padding: 8px 6px; background: #161616; border-radius: 8px; border: 1px solid #2a2a2a; display: flex; flex-direction: column; gap: 5px;">
+                    <div style="margin-top: 8px; padding: 8px 6px; background: {PALETTE['surface_soft']}; border-radius: 10px; border: 1px solid {PALETTE['border']}; display: flex; flex-direction: column; gap: 5px;">
                         <div style="display: flex; align-items: center; gap: 4px; justify-content: center; margin-bottom: 2px;">
-                            <span style="color: #888; font-size: 11px; font-family: sans-serif;">⏱️ Margem de segurança</span>
+                            <span style="color: {PALETTE['text_soft']}; font-size: 11px; font-family: sans-serif;">⏱️ Margem de segurança</span>
                         </div>
                         <div style="{row_style}">
                             <span style="{label_style}">Início:</span>
@@ -300,16 +395,57 @@ def generate_project_gallery(project_path_name, is_full_path=False):
                             <span style="{label_style}">s</span>
                             <span class="saldo-end" style="{saldo_style}">(saldo: {saldo_end}s)</span>
                         </div>
-                        <button type="button" class="reprocess-buffer-btn" data-project="{proj_name_buffer}" data-segment="{i}" data-start-id="{uid}_start" data-end-id="{uid}_end" style="margin-top: 3px; padding: 5px 10px; background: linear-gradient(135deg, #f59e0b, #d97706); color: #000; font-weight: 700; font-size: 12px; font-family: sans-serif; border: none; border-radius: 6px; cursor: pointer; transition: filter 0.2s; display: flex; align-items: center; justify-content: center; gap: 5px;" onmouseover="this.style.filter='brightness(1.15)'" onmouseout="this.style.filter='brightness(1)'">🔄 Reprocessar</button>
+                        <button type="button" class="reprocess-buffer-btn" data-project="{proj_name_buffer}" data-segment="{i}" data-start-id="{uid}_start" data-end-id="{uid}_end" style="margin-top: 3px; padding: 5px 10px; background: {PALETTE['grad']}; color: #fff; font-weight: 700; font-size: 12px; font-family: sans-serif; border: none; border-radius: 8px; cursor: pointer; transition: filter 0.2s; display: flex; align-items: center; justify-content: center; gap: 5px;" onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter='brightness(1)'">🔄 Reprocessar</button>
                     </div>
                 '''
+
+            # --- Botões "Aplicar X" por recurso desativável (estado por corte) ---
+            # Ativo (colorido) = ainda não embutido neste corte; Cinza = já aplicado.
+            try:
+                feats = render_state.get_segment_features(project_folder_path, i)
+            except Exception:
+                feats = {}
+            proj_name_apply = urllib.parse.quote(os.path.basename(project_path_name), safe="")
+            apply_features = [
+                ("watermark", i18n("Marca d'Água"), i18n("Aplicar Marca d'Água")),
+                ("outro", i18n("Outro"), i18n("Aplicar Outro / Encerramento")),
+                ("audio_bgm", i18n("Áudio"), i18n("Aplicar Áudio BGM")),
+                ("outro_music", i18n("Música"), i18n("Aplicar Música de Encerramento")),
+            ]
+            feature_accent = {"watermark": "#0ea5e9", "outro": "#a855f7", "audio_bgm": "#22c55e", "outro_music": "#f59e0b"}
+            plus_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>'
+            check_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+            apply_btns = ""
+            for fkey, short_label, full_title in apply_features:
+                esc_label = html.escape(short_label, quote=True)
+                if bool(feats.get(fkey, False)):
+                    apply_btns += (
+                        f'<button type="button" class="apply-feature-btn applied" disabled '
+                        f'data-feature="{fkey}" data-label="{esc_label}" '
+                        f'style="display:inline-flex; align-items:center; gap:5px; padding:5px 9px; border-radius:8px; '
+                        f'background:#E2E8F0; color:#94A3B8; border:1px solid #CBD5E1; cursor:default; pointer-events:none; '
+                        f'font-size:11.5px; font-weight:600; font-family:sans-serif;" title="{html.escape(i18n("Já aplicado neste corte"), quote=True)}">'
+                        f'{check_svg}<span>{short_label}</span></button>'
+                    )
+                else:
+                    accent = feature_accent.get(fkey, "#3b82f6")
+                    apply_btns += (
+                        f'<button type="button" class="apply-feature-btn" '
+                        f'data-feature="{fkey}" data-project="{proj_name_apply}" data-segment="{i}" data-label="{esc_label}" '
+                        f'style="display:inline-flex; align-items:center; gap:5px; padding:5px 9px; border-radius:7px; '
+                        f'background:{accent}; color:#fff; border:none; cursor:pointer; '
+                        f'font-size:11.5px; font-weight:600; font-family:sans-serif; transition:filter .2s;" '
+                        f'title="{html.escape(full_title, quote=True)}" onmouseover="this.style.filter=\'brightness(1.12)\'" onmouseout="this.style.filter=\'brightness(1)\'">'
+                        f'{plus_svg}<span>{short_label}</span></button>'
+                    )
+            apply_buttons_html = f'<div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; justify-content:center;">{apply_btns}</div>'
 
             # Card HTML - Dark Grid Style like Opus.pro (Inline Styles)
             card_html = f"""
             <div class="viral-card" style="display: flex; flex-direction: column; background: transparent; overflow: visible;">
                 
                 <!-- Video Player Container (9:16 Aspect Ratio) -->
-                <div style="position: relative; width: 100%; padding-top: 177.77%; background: #111; border-radius: 12px; overflow: hidden; margin-bottom: 12px; border: 1px solid #333; box-shadow: 0 4px 10px rgba(0,0,0,0.3);">
+                <div class="vc-video-wrap" style="position: relative; width: 100%; padding-top: 177.77%; background: #0F172A; border-radius: 14px; overflow: hidden; margin-bottom: 12px; border: 1px solid {PALETTE['border_strong']}; box-shadow: 0 6px 16px rgba(16,185,129,0.10); transition: box-shadow .2s ease;">
                     {video_tag}
                 </div>
                 
@@ -320,15 +456,16 @@ def generate_project_gallery(project_path_name, is_full_path=False):
                         <span style="font-size: 28px; font-weight: 900; line-height: 1; color: {score_color}; font-family: sans-serif;">{score}</span>
                         <div style="display: flex; align-items: center; gap: 4px;">
                             {polish_btn}
-                            {audio_btn}
-                            {export_link}
                             {download_link}
                         </div>
                     </div>
                     
                     <!-- Title -->
-                    <h4 style="margin: 4px 0 0 0; color: #e5e5e5; font-size: 15px; font-weight: 600; line-height: 1.4; font-family: sans-serif; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-align: center;" title="{title}">{title}</h4>
-                    
+                    <h4 style="margin: 4px 0 0 0; color: {PALETTE['text']}; font-size: 15px; font-weight: 600; line-height: 1.4; font-family: sans-serif; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-align: center;" title="{title}">{title}</h4>
+
+                    <!-- Aplicar recursos por corte -->
+                    {apply_buttons_html}
+
                     <!-- Buffer/Margin Control -->
                     {buffer_control_html}
                 </div>
@@ -345,7 +482,7 @@ def generate_project_gallery(project_path_name, is_full_path=False):
         polish_all_label = i18n("Corrigir todas as legendas com IA")
         toolbar_html = f"""
         <div style="display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 0 6px 10px 6px;">
-            <button type="button" class="polish-all-subs-btn" data-project="{proj_name_polish_all}" title="{polish_all_title}" style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 8px; background: linear-gradient(135deg, #7c3aed, #4f46e5); color: #fff; border: none; cursor: pointer; font-size: 13px; font-weight: 600; box-shadow: 0 2px 6px rgba(124,58,237,0.35); transition: filter 0.2s;" onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter='brightness(1)'">
+            <button type="button" class="polish-all-subs-btn" data-project="{proj_name_polish_all}" title="{polish_all_title}" style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 10px; background: {PALETTE['grad']}; color: #fff; border: none; cursor: pointer; font-size: 13px; font-weight: 600; box-shadow: 0 4px 12px rgba(16,185,129,0.30); transition: filter 0.2s;" onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter='brightness(1)'">
                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"></path><path d="M20 3v4"></path><path d="M22 5h-4"></path><path d="M4 17v2"></path><path d="M5 18H3"></path></svg>
                 <span class="polish-all-label">{polish_all_label}</span>
             </button>
@@ -356,7 +493,7 @@ def generate_project_gallery(project_path_name, is_full_path=False):
         return f"""
         {toolbar_html}
         {limit_notice}
-        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 30px; width: 100%; padding: 10px 0;">
+        <div class="vc-fade" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 30px; width: 100%; padding: 10px 0;">
             {html_cards}
         </div>
         """

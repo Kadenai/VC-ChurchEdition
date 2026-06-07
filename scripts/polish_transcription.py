@@ -3,8 +3,6 @@ import os
 import re
 import time
 
-CHUNK_SIZE = 100  # Segments per API call
-
 
 def call_gemini_simple(prompt, api_key, model_name="gemini-3.5-flash"):
     """
@@ -15,7 +13,7 @@ def call_gemini_simple(prompt, api_key, model_name="gemini-3.5-flash"):
 
     # Mesma cadeia de call_gemini() em create_viral_segments.py — qualquer
     # chamada à API do Gemini deve seguir a mesma ordem de preferência.
-    fallback_sequence = [model_name, "gemini-3.5-flash", "gemini-2.5-flash", "gemini-3.1-flash-lite-preview"]
+    fallback_sequence = [model_name, "gemini-3.5-flash", "gemini-3-flash-preview"]
     # Deduplicate while preserving order
     seen = set()
     models_to_try = []
@@ -80,18 +78,33 @@ def call_gemini_simple(prompt, api_key, model_name="gemini-3.5-flash"):
 
 
 def build_prompt(segment_texts):
-    """Build the correction prompt for a chunk of segment texts."""
+    """Build the correction prompt for a chunk of segment texts.
+
+    Tuned for Brazilian-Portuguese sermon/preaching transcripts: it fixes
+    speech-recognition mistakes (including biblical names and references) while
+    preserving the exact word count per line, which lets the caller keep the
+    word-level subtitle timestamps aligned.
+    """
     numbered = "\n".join(f"{i + 1}. {text}" for i, text in enumerate(segment_texts))
     return (
-        "Você é um corretor profissional de legendas em português brasileiro.\n"
-        "Abaixo está uma lista numerada de legendas transcritas automaticamente por IA.\n\n"
-        "Regras OBRIGATÓRIAS:\n"
-        "- Corrija APENAS erros de transcrição (palavras erradas, nomes próprios mal escritos)\n"
-        "- Corrija pontuação e capitalização onde necessário\n"
+        "Você é um revisor profissional de legendas de SERMÕES e PREGAÇÕES cristãs "
+        "em português brasileiro.\n"
+        "Abaixo está uma lista numerada de legendas transcritas automaticamente por IA, "
+        "que pode conter erros de reconhecimento de fala.\n\n"
+        "Corrija SOMENTE erros óbvios, com mão leve:\n"
+        "- Palavras que a IA transcreveu errado (que não fazem sentido no contexto da fala)\n"
+        "- Nomes próprios bíblicos e termos teológicos (ex.: Jesus, Paulo, Coríntios, "
+        "Espírito Santo, Habacuque, aleluia)\n"
+        "- Referências bíblicas no formato correto (ex.: \"joão 3 16\" -> \"João 3:16\")\n"
+        "- Pontuação e uso de maiúsculas/minúsculas quando necessário\n\n"
+        "Regras OBRIGATÓRIAS (não quebre nenhuma):\n"
         "- NÃO altere a ordem das palavras\n"
-        "- NÃO adicione nem remova palavras — apenas corrija as existentes\n"
-        "- NÃO reformule ou parafraseie as frases\n"
-        "- Mantenha o EXATO mesmo número de linhas que você recebeu\n"
+        "- NÃO adicione nem remova palavras — mantenha EXATAMENTE a mesma quantidade de "
+        "palavras em cada linha (isso é essencial para a sincronia da legenda)\n"
+        "- NÃO reformule, NÃO traduza e NÃO parafraseie as frases\n"
+        "- NÃO junte nem divida linhas — devolva o EXATO mesmo número de linhas recebido\n"
+        "- Se uma linha já estiver correta, devolva-a idêntica\n"
+        "- Na dúvida, NÃO mude\n"
         "- Retorne APENAS a lista numerada corrigida, sem explicações, sem markdown\n\n"
         f"Legendas:\n{numbered}"
     )
@@ -155,109 +168,3 @@ def apply_corrections_to_data(data, all_corrections):
         applied += 1
 
     return applied
-
-
-def polish(project_folder, api_key, model_name, ai_mode="gemini"):
-    """
-    Polishes transcription text in input.json using AI.
-
-    Args:
-        project_folder: Path to project folder containing input.json
-        api_key: API key for the AI backend
-        model_name: Model name (e.g. "gemini-3.5-flash")
-        ai_mode: Currently only "gemini" is supported
-
-    Returns:
-        bool: True if polishing was successful (at least partially)
-    """
-    input_json_path = os.path.join(project_folder, "input.json")
-    backup_path = os.path.join(project_folder, "input_original.json")
-
-    if not os.path.exists(input_json_path):
-        print(f"[PolishSubs] input.json not found at {input_json_path}. Skipping.")
-        return False
-
-    if ai_mode != "gemini" or not api_key:
-        print(f"[PolishSubs] AI mode '{ai_mode}' not supported or no API key. Skipping.")
-        return False
-
-    print(f"[PolishSubs] Loading transcription from {input_json_path}...")
-    try:
-        with open(input_json_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as e:
-        print(f"[PolishSubs] Failed to load input.json: {e}")
-        return False
-
-    segments = data.get("segments", [])
-    if not segments:
-        print("[PolishSubs] No segments found. Skipping.")
-        return False
-
-    print(f"[PolishSubs] Found {len(segments)} segments. Processing in chunks of {CHUNK_SIZE}...")
-
-    # Backup original
-    try:
-        if not os.path.exists(backup_path):
-            with open(backup_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False)
-            print(f"[PolishSubs] Backup saved to {backup_path}")
-    except Exception as e:
-        print(f"[PolishSubs] Warning: could not create backup: {e}")
-
-    # Process in chunks
-    all_corrections = [""] * len(segments)
-    total_chunks = (len(segments) + CHUNK_SIZE - 1) // CHUNK_SIZE
-    success_chunks = 0
-
-    for chunk_idx in range(total_chunks):
-        start = chunk_idx * CHUNK_SIZE
-        end = min(start + CHUNK_SIZE, len(segments))
-        chunk_segments = segments[start:end]
-
-        chunk_texts = [seg.get("text", "").strip() for seg in chunk_segments]
-
-        print(f"[PolishSubs] Chunk {chunk_idx + 1}/{total_chunks} (segs {start + 1}-{end})...", flush=True)
-
-        prompt = build_prompt(chunk_texts)
-
-        response_text = None
-        if ai_mode == "gemini":
-            response_text = call_gemini_simple(prompt, api_key, model_name=model_name)
-
-        if not response_text:
-            print(f"  -> [Warning] No response for chunk {chunk_idx + 1}. Keeping originals.")
-            # Keep originals for this chunk
-            for i, text in enumerate(chunk_texts):
-                all_corrections[start + i] = text
-            continue
-
-        corrections = parse_corrections(response_text, len(chunk_texts))
-        if corrections is None:
-            # Keep originals
-            for i, text in enumerate(chunk_texts):
-                all_corrections[start + i] = text
-        else:
-            for i, corrected in enumerate(corrections):
-                all_corrections[start + i] = corrected
-            success_chunks += 1
-
-        # Delay between chunks to respect rate limits
-        if chunk_idx < total_chunks - 1:
-            time.sleep(2)
-
-    # Apply all corrections
-    applied = apply_corrections_to_data(data, all_corrections)
-    print(f"[PolishSubs] Applied corrections to {applied}/{len(segments)} segments.")
-
-    # Save corrected JSON
-    try:
-        with open(input_json_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False)
-        print(f"[PolishSubs] Corrected transcription saved to {input_json_path}")
-    except Exception as e:
-        print(f"[PolishSubs] Failed to save corrected JSON: {e}")
-        return False
-
-    print(f"[PolishSubs] Done. {success_chunks}/{total_chunks} chunks processed successfully.")
-    return success_chunks > 0

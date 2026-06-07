@@ -28,23 +28,8 @@ WORKING_DIR = os.path.dirname(MAIN_SCRIPT_PATH)
 sys.path.append(WORKING_DIR)
 
 from i18n.i18n import I18nAuto
-i18n = I18nAuto()
-
-# --- PRESETS DEFINITIONS ---
-FACE_PRESETS = {
-    "Default (Balanced)": {"thresh": 0.35, "two_face": 0.60, "conf": 0.40, "dead_zone": 150},
-    "Stable (Focus Main)": {"thresh": 0.60, "two_face": 0.80, "conf": 0.60, "dead_zone": 200},
-    "Sensitive (Catch All)": {"thresh": 0.10, "two_face": 0.40, "conf": 0.30, "dead_zone": 100},
-    "High Precision": {"thresh": 0.40, "two_face": 0.65, "conf": 0.75, "dead_zone": 150},
-}
-
-EXPERIMENTAL_PRESETS = {
-    "Default (Off)": {"focus": False, "mar": 0.03, "score": 1.5, "motion": False, "motion_th": 3.0, "motion_sens": 0.05, "decay": 2.0},
-    "Active Speaker (Balanced)": {"focus": True, "mar": 0.03, "score": 1.5, "motion": True, "motion_th": 3.0, "motion_sens": 0.05, "decay": 2.0},
-    "Active Speaker (Sensitive)": {"focus": True, "mar": 0.02, "score": 1.0, "motion": True, "motion_th": 2.0, "motion_sens": 0.10, "decay": 1.0},
-    "Active Speaker (Stable)": {"focus": True, "mar": 0.05, "score": 2.5, "motion": False, "motion_th": 5.0, "motion_sens": 0.02, "decay": 3.0},
-}
-# ---------------------------
+# Church Edition é PT-first: força português independente do locale (no Colab costuma ser en_US).
+i18n = I18nAuto(language="pt_BR")
 
 VIRALS_DIR = os.path.join(WORKING_DIR, "VIRALS")
 MODELS_DIR = os.path.join(WORKING_DIR, "models")
@@ -93,16 +78,9 @@ def convert_color_to_ass(hex_color, alpha="00"):
                 b = max(0, min(255, b))
                 # Convert to hex
                 ret = f"&H{alpha}{b:02X}{g:02X}{r:02X}&".upper()
-                try:
-                    with open("debug_colors.log", "a") as f:
-                         f.write(f"PARSED RGB: {ret}\n")
-                except: pass
                 return ret
-        except Exception as e:
-            try:
-                with open("debug_colors.log", "a") as f:
-                     f.write(f"RGB ERROR: {e}\n")
-            except: pass
+        except Exception:
+            pass
 
     # Handle 3-digit hex (e.g. F00 -> FF0000)
     if len(hex_clean) == 3:
@@ -113,17 +91,9 @@ def convert_color_to_ass(hex_color, alpha="00"):
         g = hex_clean[2:4]
         b = hex_clean[4:6]
         # Uppercase just in case
-        ret = f"&H{alpha}{b}{g}{r}&".upper() 
-        try:
-            with open("debug_colors.log", "a") as f:
-                 f.write(f"PARSED HEX: {ret}\n")
-        except: pass
+        ret = f"&H{alpha}{b}{g}{r}&".upper()
         return ret
-        
-    try:
-        with open("debug_colors.log", "a") as f:
-             f.write(f"INVALID: Defaulting to White\n")
-    except: pass
+
     return f"&H{alpha}FFFFFF&"
 
 def kill_process():
@@ -142,78 +112,34 @@ def kill_process():
 
 GEMINI_MODELS = [
     'gemini-3.5-flash',
-    'gemini-3-flash-preview',
-    'gemini-3.1-flash-lite-preview',
-    'gemini-3-pro-preview',
-    'gemini-2.5-flash',
-    'gemini-2.5-flash-preview-09-2025',
-    'gemini-2.5-flash-lite',
-    'gemini-2.5-flash-lite-preview-09-2025',
-    'gemini-2.5-pro',
-    'gemini-2.0-flash',
-    'gemini-2.0-flash-lite'
+    'gemini-3-flash-preview'
 ]
-
-G4F_MODELS = [
-    'gpt-4o',
-    'gpt-4o-mini',
-    'gpt-4',
-    'o1-mini',
-    'o1',
-    'deepseek-r1',
-    'deepseek-v3',
-    'llama-3.3-70b',
-    'llama-3.1-405b',
-    'claude-3.5-sonnet',
-    'claude-3.7-sonnet',
-    'gemini-2.0-flash',
-    'qwen-2.5-72b'
-]
-
-def get_local_models():
-    if not os.path.exists(MODELS_DIR): return []
-    return [f for f in os.listdir(MODELS_DIR) if f.endswith(".gguf")]
-
-
-
-def apply_face_preset(preset_name):
-    if preset_name not in FACE_PRESETS:
-        return [gr.update() for _ in range(4)] # No change
-    
-    p = FACE_PRESETS[preset_name]
-    return p["thresh"], p["two_face"], p["conf"], p["dead_zone"]
-
-def apply_experimental_preset(preset_name):
-    if preset_name not in EXPERIMENTAL_PRESETS:
-        return [gr.update() for _ in range(7)] # No change
-        
-    p = EXPERIMENTAL_PRESETS[preset_name]
-    return p["focus"], p["mar"], p["score"], p["motion"], p["motion_th"], p["motion_sens"], p["decay"]
 
 # Subtitle logic moved to subtitle_handler.py
 
 
-def run_viral_cutter(input_source, project_name, url, video_file, drive_file, segments, viral, themes, min_duration, max_duration, model, manual_mode, ai_backend, api_key, ai_model_name, chunk_size, workflow, face_model, face_mode, face_detect_interval, no_face_mode, 
-                     face_filter_thresh, face_two_thresh, face_conf_thresh, face_dead_zone, focus_active_speaker, active_speaker_mar, active_speaker_score_diff, include_motion, active_speaker_motion_threshold, active_speaker_motion_sensitivity, active_speaker_decay,
+def run_viral_cutter(input_source, project_name, url, video_file, segments, viral, themes, min_duration, max_duration, ai_duration, model, manual_mode, api_key, ai_model_name, chunk_size, workflow,
                      use_custom_subs, font_name, font_size, font_color, highlight_color, outline_color, outline_thickness, shadow_color, shadow_size, is_bold, is_italic, is_uppercase, vertical_pos, margin_h, alignment,
-                     h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs, translate_target, polish_subs):
-    
+                     h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs):
+
     global current_process
-    
+
     # --- SAVE UI STATE ---
     ui_state_to_save = {
-        "video_quality": video_quality, "translate_target": translate_target, "use_youtube_subs": use_youtube_subs,
-        "segments": segments, "viral": viral, "themes": themes, "min_duration": min_duration, "max_duration": max_duration,
-        "model": model, "manual_mode": manual_mode, "ai_backend": ai_backend, "ai_model_name": ai_model_name, "chunk_size": chunk_size, "workflow": workflow,
-        "face_model": face_model, "face_mode": face_mode, "margin_h": margin_h
+        "video_quality": video_quality, "use_youtube_subs": use_youtube_subs,
+        "segments": segments, "viral": viral, "themes": themes, "min_duration": min_duration, "max_duration": max_duration, "ai_duration": ai_duration,
+        "model": model, "manual_mode": manual_mode, "ai_model_name": ai_model_name, "chunk_size": chunk_size, "workflow": workflow,
+        "margin_h": margin_h
     }
     try:
         with open(os.path.join(WORKING_DIR, "ui_settings.json"), "w", encoding="utf-8") as f:
             json.dump(ui_state_to_save, f, indent=4)
     except: pass
+    # Persiste a chave de IA (digita 1x e fica salva em api_config.json).
+    save_api_key(api_key)
     # ---------------------
-    
-    yield "", gr.update(value=i18n("Running..."), interactive=False), gr.update(visible=True), None, gr.update(visible=False), None
+
+    yield "", gr.update(value=i18n("Gerando..."), interactive=False), gr.update(visible=True), None, gr.update(visible=False), None
 
     cmd = [sys.executable, MAIN_SCRIPT_PATH]
     cmd.extend(["--language", "pt"])
@@ -221,42 +147,13 @@ def run_viral_cutter(input_source, project_name, url, video_file, drive_file, se
     # Input Source Logic
     if input_source == "Existing Project":
         if not project_name:
-             yield i18n("Error: No project selected."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(visible=False), None
+             yield i18n("Error: No project selected."), gr.update(value=i18n("✨ Gerar meus cortes"), interactive=True), gr.update(visible=False), None, gr.update(visible=False), None
              return
         full_project_path = os.path.join(VIRALS_DIR, project_name)
         cmd.extend(["--project-path", full_project_path])
-    elif input_source == "Google Drive File":
-        drive_root = "/content/drive/MyDrive" if os.path.exists("/content/drive/MyDrive") else os.path.abspath(".")
-        if drive_file and not os.path.isabs(drive_file):
-             drive_file = os.path.join(drive_root, drive_file)
-             
-        if not drive_file or not os.path.exists(drive_file):
-             yield i18n("Error: Google Drive file not found."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(visible=False), None
-             return
-        
-        # Determine project name from filename
-        original_filename = os.path.basename(drive_file)
-        name_no_ext = os.path.splitext(original_filename)[0]
-        # Sanitize: Allow alphanumeric, space, dash, underscore
-        safe_name = "".join([c for c in name_no_ext if c.isalnum() or c in " _-"]).strip()
-        if not safe_name: safe_name = "Untitled_Drive"
-        
-        # Always append timestamp as requested
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        project_name_drive = f"{safe_name}_{timestamp}"
-        project_path = os.path.join(VIRALS_DIR, project_name_drive)
-        os.makedirs(project_path, exist_ok=True)
-        
-        target_path = os.path.join(project_path, "input.mp4")
-        shutil.copy(drive_file, target_path)
-        
-        cmd.extend(["--project-path", project_path])
-        # Skip YouTube subs as it is a local upload
-        cmd.append("--skip-youtube-subs")
-        
     elif input_source == "Upload Video":
         if not video_file:
-             yield i18n("Error: No video file uploaded."), gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(visible=False), None
+             yield i18n("Error: No video file uploaded."), gr.update(value=i18n("✨ Gerar meus cortes"), interactive=True), gr.update(visible=False), None, gr.update(visible=False), None
              return
         
         # Determine project name from filename
@@ -287,54 +184,24 @@ def run_viral_cutter(input_source, project_name, url, video_file, drive_file, se
         # Pass Subtitle Option (if False, we skip)
         if not use_youtube_subs: cmd.append("--skip-youtube-subs")
         
-    # Translation (applies to all source types)
-    if translate_target and translate_target != "None":
-        translate_target_cli = "pt" if str(translate_target).lower() in ("pt-br", "pt_br") else translate_target
-        cmd.extend(["--translate-target", translate_target_cli])
-
-    
     cmd.extend(["--segments", str(int(segments))])
     if viral: cmd.append("--viral")
     if themes: cmd.extend(["--themes", themes])
     cmd.extend(["--min-duration", str(int(min_duration))])
     cmd.extend(["--max-duration", str(int(max_duration))])
+    if ai_duration: cmd.append("--ai-duration")
     cmd.extend(["--model", model])
     if manual_mode: cmd.append("--manual-webui")
-    cmd.extend(["--ai-backend", ai_backend])
     if api_key: cmd.extend(["--api-key", api_key])
-    
-    # New AI Params
+
+    # AI Params
     if ai_model_name: cmd.extend(["--ai-model-name", str(ai_model_name)])
     if chunk_size: cmd.extend(["--chunk-size", str(int(chunk_size))])
 
     workflow_map = {"Full": "1", "Cut Only": "2", "Subtitles Only": "3"}
     cmd.extend(["--workflow", workflow_map.get(workflow, "1")])
-    cmd.extend(["--face-model", face_model])
-    cmd.extend(["--face-mode", face_mode])
-    if face_detect_interval: cmd.extend(["--face-detect-interval", str(face_detect_interval)])
-    if no_face_mode: cmd.extend(["--no-face-mode", no_face_mode])
-    
-    # New Face Params
-    if face_filter_thresh is not None: cmd.extend(["--face-filter-threshold", str(face_filter_thresh)])
-    if face_two_thresh is not None: cmd.extend(["--face-two-threshold", str(face_two_thresh)])
-    if face_conf_thresh is not None: cmd.extend(["--face-confidence-threshold", str(face_conf_thresh)])
-    if face_dead_zone is not None: cmd.extend(["--face-dead-zone", str(face_dead_zone)])
-
-
-    
-    if focus_active_speaker:
-        cmd.append("--focus-active-speaker")
-        if active_speaker_mar is not None: cmd.extend(["--active-speaker-mar", str(active_speaker_mar)])
-        if active_speaker_score_diff is not None: cmd.extend(["--active-speaker-score-diff", str(active_speaker_score_diff)])
-        if include_motion: cmd.append("--include-motion")
-        if active_speaker_motion_threshold is not None: cmd.extend(["--active-speaker-motion-threshold", str(active_speaker_motion_threshold)])
-        if active_speaker_motion_sensitivity is not None: cmd.extend(["--active-speaker-motion-sensitivity", str(active_speaker_motion_sensitivity)])
-        if active_speaker_decay is not None: cmd.extend(["--active-speaker-decay", str(active_speaker_decay)])
 
     cmd.append("--skip-prompts") # Always skip prompts in WebUI to prevent freezing
-
-    if polish_subs:
-        cmd.append("--polish-subs")
 
     watermark_config_path = os.path.join(WORKING_DIR, "watermark_config.json")
     if os.path.exists(watermark_config_path):
@@ -459,7 +326,7 @@ def run_viral_cutter(input_source, project_name, url, video_file, drive_file, se
                       prompt_content = f.read()
             except: prompt_content = "Erro lendo prompt_full.txt. Acesse a pasta do projeto."
             
-        yield logs, gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), None, gr.update(visible=True), prompt_content
+        yield logs, gr.update(value=i18n("✨ Gerar meus cortes"), interactive=True), gr.update(visible=False), None, gr.update(visible=True), prompt_content
         return
 
     html_output = ""
@@ -467,43 +334,103 @@ def run_viral_cutter(input_source, project_name, url, video_file, drive_file, se
         html_output = library.generate_project_gallery(project_folder_path, is_full_path=True)
     else:
         html_output = f"<h3>{i18n('Error: Project folder could not be determined from logs.')}</h3>"
-    yield logs, gr.update(value=i18n("Start Processing"), interactive=True), gr.update(visible=False), html_output, gr.update(visible=False), None
+    yield logs, gr.update(value=i18n("✨ Gerar meus cortes"), interactive=True), gr.update(visible=False), html_output, gr.update(visible=False), None
 
-css = """
-/* Global Dark Theme Overrides */
-body, .gradio-container {
-    background-color: #0b0b0b !important;
-    color: #ffffff !important;
-}
-
-/* Force dark background for specific inputs that might be white */
-input[type="password"], textarea, select {
-    background-color: #1f1f1f !important;
-    color: #ffffff !important;
-    border: 1px solid #333 !important;
-}
-
-/* Hide Footer */
-footer {visibility: hidden}
-
-/* Container Width */
-.gradio-container {
-    max-width: 98% !important; 
-    width: 98% !important;
-    margin: 0 auto !important;
-}
-"""
+# Tema e estilos da marca (Church Edition) — paleta esmeralda + branco.
+import styles
+from styles import CSS as css
+from theme import build_theme, PALETTE
 
 import header
 
+# --- Chave de IA (Gemini): salvar/carregar de api_config.json p/ digitar só 1 vez ---
+API_CONFIG_PATH = os.path.join(WORKING_DIR, "api_config.json")
+
+def load_saved_api_key():
+    try:
+        with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        return ((cfg.get("gemini", {}) or {}).get("api_key") or "").strip()
+    except Exception:
+        return ""
+
+def save_api_key(key):
+    key = (key or "").strip()
+    if not key:
+        return
+    cfg = {}
+    try:
+        if os.path.exists(API_CONFIG_PATH):
+            with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+    except Exception:
+        cfg = {}
+    cfg.setdefault("selected_api", "gemini")
+    cfg.setdefault("gemini", {})["api_key"] = key
+    try:
+        with open(API_CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=4)
+    except Exception:
+        pass
+
+def api_key_status_html():
+    if load_saved_api_key():
+        return (f"<div style='color:{PALETTE['primary_deep']};font-size:0.9rem;font-weight:600;'>"
+                f"✅ {i18n('Chave de IA salva — não precisa digitar de novo.')}</div>")
+    return (f"<div style='color:{PALETTE['text_muted']};font-size:0.9rem;'>"
+            f"{i18n('Nenhuma chave salva ainda.')}</div>")
+
 UI_SETTINGS_PATH = os.path.join(WORKING_DIR, "ui_settings.json")
+
+# Padrão de fábrica das configurações de corte. O botão "Restaurar padrões"
+# volta tudo para cá; e o que o usuário muda é salvo ao vivo como novo padrão.
+DEFAULT_UI_SETTINGS = {
+    "video_quality": "best",
+    "use_youtube_subs": False,
+    "segments": 12,
+    "viral": True,
+    "themes": "",
+    "min_duration": 60,
+    "max_duration": 120,
+    "ai_duration": False,
+    "model": "large-v3-turbo",
+    "manual_mode": False,
+    "ai_model_name": GEMINI_MODELS[0],
+    "chunk_size": 70000,
+    "workflow": "Full",
+    "margin_h": 35,
+}
+
 def load_ui_state():
+    # Mescla sobre o padrão de fábrica para que toda chave exista.
+    state = dict(DEFAULT_UI_SETTINGS)
     if os.path.exists(UI_SETTINGS_PATH):
         try:
             with open(UI_SETTINGS_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except: return {}
-    return {}
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                state.update(loaded)
+        except Exception:
+            pass
+    return state
+
+def save_ui_settings_live(video_quality, use_youtube_subs, segments, viral, themes,
+                          min_duration, max_duration, ai_duration, model, manual_mode,
+                          ai_model_name, chunk_size, workflow, margin_h):
+    """Salva ao vivo o que o usuário mudou — vira o novo padrão na próxima abertura."""
+    data = {
+        "video_quality": video_quality, "use_youtube_subs": use_youtube_subs,
+        "segments": segments, "viral": viral, "themes": themes,
+        "min_duration": min_duration, "max_duration": max_duration, "ai_duration": ai_duration,
+        "model": model, "manual_mode": manual_mode, "ai_model_name": ai_model_name,
+        "chunk_size": chunk_size, "workflow": workflow, "margin_h": margin_h,
+    }
+    try:
+        with open(UI_SETTINGS_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+    except Exception:
+        pass
+    return ""
 
 ui_state = load_ui_state()
 
@@ -536,9 +463,9 @@ def get_active_modules_html():
     
     if active:
         items = ', '.join(active)
-        return f"<div style='flex-grow: 1; padding: 8px 15px; background-color: rgba(30, 58, 138, 0.5); border: 1px solid #3b82f6; border-radius: 5px; color: #bfdbfe; font-size: 0.95em; display: flex; align-items: center; justify-content: center;'><b>{i18n('Módulos Ativos')}:</b>&nbsp;{items}</div>"
+        return f"<div style='flex-grow: 1; padding: 8px 15px; background-color: {PALETTE['surface_soft']}; border: 1px solid {PALETTE['border_strong']}; border-radius: 10px; color: {PALETTE['primary_deeper']}; font-size: 0.95em; font-weight: 600; display: flex; align-items: center; justify-content: center;'><b>{i18n('Módulos Ativos')}:</b>&nbsp;{items}</div>"
     else:
-        return f"<div style='flex-grow: 1; padding: 8px 15px; background-color: rgba(55, 65, 81, 0.3); border: 1px solid #4b5563; border-radius: 5px; color: #9ca3af; font-size: 0.95em; display: flex; align-items: center; justify-content: center;'>{i18n('Nenhum módulo extra ativo para este projeto.')}</div>"
+        return f"<div style='flex-grow: 1; padding: 8px 15px; background-color: {PALETTE['canvas']}; border: 1px solid {PALETTE['border']}; border-radius: 10px; color: {PALETTE['text_muted']}; font-size: 0.95em; display: flex; align-items: center; justify-content: center;'>{i18n('Nenhum módulo extra ativo para este projeto.')}</div>"
 
 def _pick_uploaded_or_saved(uploaded_file, saved_path):
     return uploaded_file or saved_path
@@ -568,75 +495,62 @@ def _outro_preview_from_saved(uploaded_video, saved_video, uploaded_image, saved
     return outro_handler.generate_outro_preview(video_path, image_path, x, y, scale, rounded_corners)
 
 
-def _save_outro_config_and_state(enabled, outro_video_path, overlay_image_path, position_x, position_y, scale, fade_duration, rounded_corners):
+def _save_outro_config_and_state(enabled, outro_video_path, overlay_image_path, position_x, position_y, scale, fade_duration, rounded_corners, outro_volume):
     status = outro_handler.save_outro_config(
-        enabled, outro_video_path, overlay_image_path, position_x, position_y, scale, fade_duration, rounded_corners
+        enabled, outro_video_path, overlay_image_path, position_x, position_y, scale, fade_duration, rounded_corners, outro_volume
     )
     cfg = outro_handler.load_outro_config()
     return status, cfg.get("outro_video_path"), cfg.get("overlay_image_path")
 
 
+def _asset_status_html(rows):
+    """Render the currently-saved asset filenames so users can see what is configured.
+
+    `rows` is a list of (description, path) tuples. The upload widgets always look
+    empty (Gradio does not preload saved files), so this label is what tells the
+    user an asset is actually saved and active.
+    """
+    html_rows = []
+    for desc, path in rows:
+        if path and os.path.exists(path):
+            html_rows.append(
+                f"<div style='color:{PALETTE['primary_deep']};'>✅ {desc}: <b>{os.path.basename(path)}</b></div>"
+            )
+        else:
+            html_rows.append(
+                f"<div style='color:{PALETTE['text_muted']};'>— {desc}: {i18n('nenhum arquivo salvo')}</div>"
+            )
+    return (
+        f"<div style='font-size:0.85em; line-height:1.5; padding:6px 10px; "
+        f"background:{PALETTE['surface_soft']}; border:1px solid {PALETTE['border']}; border-radius:10px;'>"
+        + "".join(html_rows)
+        + "</div>"
+    )
+
+
+def _outro_assets_from_state(saved_video, saved_image):
+    return _asset_status_html([
+        (i18n("Vídeo de Encerramento salvo"), saved_video),
+        (i18n("Imagem Overlay salva"), saved_image),
+    ])
+
+
+def _watermark_asset_from_state(saved_image):
+    return _asset_status_html([(i18n("Imagem da Marca d'água salva"), saved_image)])
+
+
+def _audio_assets_from_state(saved_audio, saved_outro_music):
+    return _asset_status_html([
+        (i18n("Áudio BGM salvo"), saved_audio),
+        (i18n("Música de Encerramento salva"), saved_outro_music),
+    ])
+
+
 _global_js = """
 (async () => {
     const st = document.createElement('style');
-    st.textContent = '@keyframes vc-spin{to{transform:rotate(360deg)}}.vc-spin{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:2px solid rgba(100,255,123,0.3);border-top-color:#64ff7b;border-radius:50%;animation:vc-spin .8s linear infinite}.vc-ok{color:#64ff7b!important;transform:scale(1.3);transition:all .3s}.vc-err{color:#ff4444!important;transform:scale(1.3);transition:all .3s}';
+    st.textContent = '@keyframes vc-spin{to{transform:rotate(360deg)}}.vc-spin{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:2px solid rgba(16,185,129,0.25);border-top-color:#10B981;border-radius:50%;animation:vc-spin .8s linear infinite}.vc-ok{color:#10B981!important;transform:scale(1.3);transition:all .3s}.vc-err{color:#E11D48!important;transform:scale(1.3);transition:all .3s}';
     document.head.appendChild(st);
-    document.body.addEventListener("click", async (e) => {
-        let btn = e.target.closest('.apply-audio-btn');
-        if (!btn) return;
-        e.preventDefault();
-        e.stopPropagation();
-        if (btn._vcL) return;
-        let vp = btn.getAttribute('data-video-path') || '';
-        if (!vp) {
-            let t = btn.getAttribute('title') || '';
-            if (t.startsWith('APPLY_AUDIO::')) vp = t.substring(13);
-        }
-        if (!vp) return;
-        btn._vcL = true;
-        let oh = btn.innerHTML;
-        let oc = btn.style.color;
-        btn.innerHTML = '<div class="vc-spin"></div>';
-        btn.style.pointerEvents = 'none';
-        try {
-            let r = await fetch('/apply_audio_api?video_path=' + vp);
-            let d = await r.json();
-            if (d.success) {
-                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-                btn.classList.add('vc-ok');
-                let c = btn.parentElement;
-                while (c && !c.querySelector('video')) c = c.parentElement;
-                if (c) {
-                    let v = c.querySelector('video');
-                    if (v) {
-                        const srcEl = v.querySelector('source');
-                        const srcFromSource = srcEl ? (srcEl.getAttribute('src') || srcEl.src || '') : '';
-                        const baseSrc = (v.currentSrc || srcFromSource || v.getAttribute('src') || '').split('?')[0];
-                        if (baseSrc) {
-                            const nextSrc = baseSrc + '?t=' + Date.now();
-                            if (srcEl) {
-                                srcEl.src = nextSrc;
-                                v.removeAttribute('src');
-                            } else {
-                                v.src = nextSrc;
-                            }
-                            v.load();
-                        }
-                    }
-                }
-                setTimeout(() => { btn.innerHTML = oh; btn.style.color = oc; btn.style.pointerEvents = ''; btn.classList.remove('vc-ok'); btn._vcL = false; }, 2500);
-            } else {
-                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
-                btn.classList.add('vc-err');
-                setTimeout(() => { btn.innerHTML = oh; btn.style.color = oc; btn.style.pointerEvents = ''; btn.classList.remove('vc-err'); btn._vcL = false; }, 3000);
-            }
-        } catch (err) {
-            btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
-            btn.classList.add('vc-err');
-            setTimeout(() => { btn.innerHTML = oh; btn.style.color = oc; btn.style.pointerEvents = ''; btn.classList.remove('vc-err'); btn._vcL = false; }, 3000);
-        }
-    }, true);
-
     // Helper: reload the <video> tag in a card so the new burned subtitle is visible.
     function vcReloadVideoInCard(cardEl) {
         if (!cardEl) return;
@@ -784,64 +698,144 @@ _global_js = """
             setTimeout(() => { btn.innerHTML = oh; btn.classList.remove('vc-err'); btn.style.pointerEvents = ''; btn.style.opacity = '1'; btn._vcL = false; startInput.disabled = false; endInput.disabled = false; }, 3500);
         }
     }, true);
+
+    // Aplicar um recurso desativável (marca d'água/outro/áudio/música) a UM corte.
+    document.body.addEventListener("click", async (e) => {
+        const btn = e.target.closest('.apply-feature-btn');
+        if (!btn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn._vcL || btn.classList.contains('applied')) return;
+        const feature = btn.getAttribute('data-feature') || '';
+        const project = btn.getAttribute('data-project') || '';
+        const segment = btn.getAttribute('data-segment') || '';
+        const label = btn.getAttribute('data-label') || '';
+        if (!feature || !project || segment === '') return;
+        btn._vcL = true;
+        const oh = btn.innerHTML;
+        const origBg = btn.style.background;
+        const origTitle = btn.title;
+        btn.style.pointerEvents = 'none';
+        btn.style.opacity = '0.85';
+        btn.innerHTML = '<div class="vc-spin" style="width:15px;height:15px;border-width:2px"></div><span>Aplicando…</span>';
+        try {
+            const r = await fetch('/apply_feature_api?project=' + project + '&segment=' + encodeURIComponent(segment) + '&feature=' + encodeURIComponent(feature));
+            const d = await r.json();
+            if (d.success) {
+                let card = btn.closest('.viral-card') || btn.parentElement;
+                while (card && !card.querySelector('video')) card = card.parentElement;
+                vcReloadVideoInCard(card);
+                // Estado "já aplicado": botão fica cinza/desativado.
+                btn.classList.add('applied');
+                btn.disabled = true;
+                btn.style.background = '#E2E8F0';
+                btn.style.color = '#94A3B8';
+                btn.style.border = '1px solid #CBD5E1';
+                btn.style.cursor = 'default';
+                btn.style.pointerEvents = 'none';
+                btn.style.opacity = '1';
+                btn.style.filter = 'none';
+                btn.title = 'Já aplicado neste corte';
+                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg><span>' + (label || 'Aplicado') + '</span>';
+                btn._vcL = false;
+            } else {
+                console.warn('Aplicar recurso falhou:', d.error);
+                btn.innerHTML = '<span>✗ Erro</span>';
+                btn.style.background = '#E11D48';
+                btn.style.color = '#fff';
+                btn.title = 'Erro: ' + (d.error || 'falhou');
+                setTimeout(() => { btn.innerHTML = oh; btn.style.background = origBg; btn.style.pointerEvents = ''; btn.style.opacity = '1'; btn.title = origTitle; btn._vcL = false; }, 3500);
+            }
+        } catch (err) {
+            console.warn('Aplicar recurso erro:', err);
+            btn.innerHTML = '<span>✗ Erro</span>';
+            btn.style.background = '#7f1d1d';
+            btn.style.color = '#fff';
+            setTimeout(() => { btn.innerHTML = oh; btn.style.background = origBg; btn.style.pointerEvents = ''; btn.style.opacity = '1'; btn.title = origTitle; btn._vcL = false; }, 3500);
+        }
+    }, true);
 })();
 """
 
-with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_hue="orange", neutral_hue="slate"), css=css, js=_global_js) as demo:
-    gr.Markdown(header.badges)
-    gr.Markdown(header.description)
+# Pergunta de limpeza só na 1ª carga por inicialização do app (não repete a cada refresh).
+_startup_cleanup_asked = False
+
+with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme(), css=css, js=_global_js) as demo:
+    gr.HTML(header.header_html)
+
+    # --- Pergunta "limpar arquivos antigos?" ao abrir o app (preenchida em demo.load) ---
+    with gr.Group(visible=False) as startup_cleanup_banner:
+        gr.Markdown(i18n(
+            "## 🧹 Limpar arquivos antigos?\n"
+            "Encontrei projetos e temporários de execuções anteriores. Quer apagar agora para "
+            "começar limpo? A pasta **Cortes IPB** (seus vídeos finais), seus **assets**, as "
+            "**configurações** e a **chave de API** não serão tocados."
+        ))
+        startup_cleanup_box = gr.Textbox(label=i18n("O que pode ser apagado"), lines=8, interactive=False)
+        with gr.Row():
+            startup_cleanup_yes = gr.Button(i18n("🗑️ Sim, limpar agora"), variant="stop")
+            startup_cleanup_no = gr.Button(i18n("Agora não, manter"), variant="secondary")
+        startup_cleanup_status = gr.Markdown("")
+
     with gr.Tabs():
-        with gr.Tab(i18n("Create New")) as create_tab:
+        with gr.Tab(i18n("🎬 Criar Cortes")) as create_tab:
              with gr.Row():
                 with gr.Column(scale=1):
-                    input_source = gr.Radio([(i18n("YouTube URL"), "YouTube URL"), (i18n("Existing Project"), "Existing Project"), (i18n("Upload Video"), "Upload Video"), (i18n("Google Drive File"), "Google Drive File")], label=i18n("Input Source"), value="YouTube URL")
+                    gr.HTML(styles.step_badge(1, i18n("Escolha o vídeo")))
+                    input_source = gr.Radio([(i18n("📁 Upar vídeo"), "Upload Video"), (i18n("▶️ Link do YouTube"), "YouTube URL"), (i18n("🗂️ Projeto já criado"), "Existing Project")], label=i18n("De onde vem o vídeo?"), value="Upload Video")
                     
-                    url_input = gr.Textbox(label=i18n("YouTube URL"), placeholder="https://www.youtube.com/watch?v=...", visible=True)
-                    video_upload = gr.File(label=i18n("Upload Video"), file_count="single", file_types=["video"], visible=False)
-                    import os
-                    drive_root = "/content/drive/MyDrive" if os.path.exists("/content/drive/MyDrive") else os.path.abspath(".")
-                    drive_input = gr.FileExplorer(label=i18n("Selecione o vídeo do seu Google Drive"), root_dir=drive_root, glob="**/*", file_count="single", visible=False)
+                    video_upload = gr.File(label=i18n("Arraste seu vídeo aqui (ou clique para escolher)"), file_count="single", file_types=["video"], visible=True)
+                    url_input = gr.Textbox(label=i18n("Link do YouTube"), placeholder="https://www.youtube.com/watch?v=...", visible=False)
                     
-                    with gr.Row():
-                        video_quality_input = gr.Dropdown(choices=["best", "1080p", "720p", "480p"], label=i18n("Video Quality"), value=ui_state.get("video_quality", "best"))
-                        translate_input = gr.Dropdown(choices=["None", "pt-BR", "pt", "en", "es", "fr", "de", "it", "ru", "ja", "ko", "zh-CN"], label=i18n("Translate Subtitles To"), value=ui_state.get("translate_target", "None"))
-                        use_youtube_subs_input = gr.Checkbox(label=i18n("Use YouTube Subs"), value=ui_state.get("use_youtube_subs", False), info=i18n("Download and use official subtitles if available. (Recommended, it speeds up the process)"))
-                        polish_subs_input = gr.Checkbox(label=i18n("✨ Melhorar Qualidade da Legenda"), value=False, info=i18n("Usa IA para corrigir erros de transcrição (palavras, pontuação, nomes próprios) antes de processar. Desabilitado por padrão."))
+                    with gr.Group(visible=False) as youtube_group:
+                        with gr.Row():
+                            video_quality_input = gr.Dropdown(choices=["best", "1080p", "720p", "480p"], label=i18n("Qualidade do download"), value=ui_state.get("video_quality", "best"))
+                            use_youtube_subs_input = gr.Checkbox(label=i18n("Usar legendas prontas do YouTube"), value=ui_state.get("use_youtube_subs", False), info=i18n("Mais rápido quando o vídeo já tem legenda."))
 
-                    project_selector = gr.Dropdown(choices=[], label=i18n("Select Project"), visible=False)
+                    project_selector = gr.Dropdown(choices=[], label=i18n("Escolha o projeto"), visible=False)
                     
                     def on_source_change(source):
                         if source == "YouTube URL":
-                            return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(value="Full") 
+                            return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(value="Full"), gr.update(visible=True)
                         elif source == "Upload Video":
-                             return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), gr.update(visible=False), gr.update(value="Full")
-                        elif source == "Google Drive File":
-                             return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), gr.update(value="Full")
+                            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True), gr.update(value="Full"), gr.update(visible=False)
                         else:
                             # Load projects
                             projs = library.get_existing_projects()
-                            return gr.update(visible=False), gr.update(choices=projs, visible=True), gr.update(visible=False), gr.update(visible=False), gr.update(value="Subtitles Only")
+                            return gr.update(visible=False), gr.update(choices=projs, visible=True), gr.update(visible=False), gr.update(value="Subtitles Only"), gr.update(visible=False)
                     
                     
+                    gr.HTML(styles.step_badge(2, i18n("Como cortar")))
+                    gr.HTML(styles.help_banner(i18n("Cada corte vira um vídeo curto. A IA encontra os melhores momentos da pregação automaticamente.")))
                     with gr.Row():
-                        segments_input = gr.Number(label=i18n("Segments"), value=ui_state.get("segments", 12), precision=0)
-                        viral_input = gr.Checkbox(label=i18n("Viral Mode"), value=ui_state.get("viral", True))
-                    themes_input = gr.Textbox(label=i18n("Themes"), placeholder=i18n("funny, sad..."), visible=False, value=ui_state.get("themes", ""))
+                        segments_input = gr.Number(label=i18n("Quantos cortes você quer?"), value=ui_state.get("segments", 12), precision=0)
+                        viral_input = gr.Checkbox(label=i18n("Deixar a IA escolher os melhores trechos"), value=ui_state.get("viral", True))
+                    themes_input = gr.Textbox(label=i18n("Temas (opcional)"), placeholder=i18n("ex.: fé, família, esperança"), visible=False, value=ui_state.get("themes", ""))
                     viral_input.change(lambda x: gr.update(visible=not x), viral_input, themes_input)
+                    _ai_dur_initial = bool(ui_state.get("ai_duration", False))
+                    ai_duration_input = gr.Checkbox(label=i18n("Deixar a IA decidir a duração de cada corte"), value=_ai_dur_initial, info=i18n("Recomendado. Se desligar, você define a duração mínima e máxima abaixo."))
                     with gr.Row():
-                        min_dur_input = gr.Number(label=i18n("Min Duration (s)"), value=ui_state.get("min_duration", 60))
-                        max_dur_input = gr.Number(label=i18n("Max Duration (s)"), value=ui_state.get("max_duration", 120))
+                        min_dur_input = gr.Number(label=i18n("Duração mínima (segundos)"), value=ui_state.get("min_duration", 60), interactive=not _ai_dur_initial)
+                        max_dur_input = gr.Number(label=(i18n("Teto de segurança (s)") if _ai_dur_initial else i18n("Duração máxima (segundos)")), value=ui_state.get("max_duration", 120))
+                    def _toggle_ai_duration(ai):
+                        # Quando a IA decide: não há mínimo (campo Mín desabilitado);
+                        # o campo Máx continua valendo, mas como teto de segurança.
+                        return gr.update(interactive=not ai), gr.update(label=(i18n("Teto de segurança (s)") if ai else i18n("Duração máxima (segundos)")))
+                    ai_duration_input.change(_toggle_ai_duration, inputs=ai_duration_input, outputs=[min_dur_input, max_dur_input])
                 with gr.Column(scale=1):
-                    manual_mode_input = gr.Checkbox(label=i18n("Processamento Manual (Curadoria Externa via JSON)"), value=ui_state.get("manual_mode", False))
-                    with gr.Row():
-                        ai_backend_input = gr.Dropdown(choices=[(i18n("Gemini"), "gemini"), (i18n("G4F"), "g4f"), (i18n("Local (GGUF)"), "local"), (i18n("Manual"), "manual")], label=i18n("AI Backend"), value=ui_state.get("ai_backend", "gemini"), scale=2)
-                        api_key_input = gr.Textbox(label=i18n("Gemini API Key"), type="password", scale=3)
-                    
-                    # New Dynamic Inputs
-                    with gr.Row():
-                        ai_model_input = gr.Dropdown(choices=GEMINI_MODELS, label=i18n("AI Model"), value=ui_state.get("ai_model_name", GEMINI_MODELS[0]), allow_custom_value=True, visible=True, scale=5)
-                        refresh_models_btn = gr.Button("🔄", size="sm", visible=False, scale=0, min_width=50) # Only local
-                        chunk_size_input = gr.Number(label=i18n("Chunk Size"), value=ui_state.get("chunk_size", 70000), precision=0, scale=2)
+                    gr.HTML(styles.step_badge(3, i18n("Inteligência Artificial"), i18n("configure uma vez")))
+                    gr.HTML(styles.help_banner(i18n("A IA precisa de uma chave gratuita do Google para entender a pregação. Cole sua chave abaixo uma única vez — ela fica salva.")))
+                    api_key_input = gr.Textbox(label=i18n("Chave de IA (Google Gemini)"), type="password", placeholder=i18n("Cole aqui a sua chave..."))
+                    api_key_status = gr.HTML(api_key_status_html())
+                    gr.Markdown(i18n("Não tem uma chave? O passo a passo para conseguir (é grátis) está na aba **Sobre**."))
+
+                    with gr.Accordion(i18n("⚙️ Opções avançadas (não precisa mexer)"), open=False):
+                        model_input = gr.Dropdown(["tiny", "small", "medium", "large", "large-v1", "large-v2", "large-v3", "turbo", "large-v3-turbo", "distil-large-v2", "distil-medium.en", "distil-small.en", "distil-large-v3"], label=i18n("Qualidade da transcrição"), value=ui_state.get("model", "large-v3-turbo"), info=i18n("Já está no melhor. Mude só se souber o que está fazendo."))
+                        with gr.Row():
+                            ai_model_input = gr.Dropdown(choices=GEMINI_MODELS, label=i18n("Modelo de IA"), value=ui_state.get("ai_model_name", GEMINI_MODELS[0]), allow_custom_value=True, visible=True, scale=5)
+                            chunk_size_input = gr.Number(label=i18n("Tamanho do bloco de texto"), value=ui_state.get("chunk_size", 70000), precision=0, scale=2)
+                        workflow_input = gr.Dropdown(choices=[(i18n("Vídeo completo (corte + legenda)"), "Full"), (i18n("Apenas cortar"), "Cut Only"), (i18n("Apenas legendar"), "Subtitles Only")], label=i18n("O que fazer com o vídeo?"), value=ui_state.get("workflow", "Full"))
+                        manual_mode_input = gr.Checkbox(label=i18n("Curadoria manual (avançado, via JSON)"), value=ui_state.get("manual_mode", False))
 
                     with gr.Column(visible=ui_state.get("manual_mode", False)) as manual_review_group:
                          gr.Markdown("### " + i18n("Curadoria de IA Manual"))
@@ -869,15 +863,48 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                               if not proj:
                                   return "Nenhum projeto encontrado. Reposicione na seleção de projeto.", gr.update(), gr.update()
                                   
+                              proj_name = os.path.basename(os.path.normpath(proj))
+                              proj_dir = proj if os.path.isabs(proj) else os.path.join(VIRALS_DIR, proj_name)
+
+                              # Validar/sanitizar o JSON colado ANTES de salvar
+                              # (lida com cercas ```json, texto extra e JSON truncado da IA externa)
+                              data = None
                               try:
-                                  save_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "VIRALS", proj, "viral_segments.txt")
-                                  if os.path.isabs(proj): save_path = os.path.join(proj, "viral_segments.txt")
+                                  from scripts.create_viral_segments import clean_json_response
+                                  text = (jsn or "").strip()
+                                  try:
+                                      parsed = json.loads(text)
+                                      if isinstance(parsed, dict) and isinstance(parsed.get("segments"), list):
+                                          data = parsed
+                                      elif isinstance(parsed, list):
+                                          data = {"segments": parsed}
+                                  except (ValueError, TypeError):
+                                      data = None
+                                  if not (data and data.get("segments")):
+                                      data = clean_json_response(text)
+                              except Exception as e:
+                                  return f"Erro ao interpretar o JSON: {e}", gr.update(), gr.update()
+
+                              if not (isinstance(data, dict) and data.get("segments")):
+                                  return ("❌ Não encontrei uma lista 'segments' válida no JSON colado. "
+                                          "Cole no formato {\"segments\": [...]} (pode vir com cercas ```json, eu limpo).",
+                                          gr.update(), gr.update())
+
+                              try:
+                                  save_path = os.path.join(proj_dir, "viral_segments.txt")
                                   with open(save_path, "w", encoding="utf-8") as f:
-                                      f.write(jsn)
+                                      json.dump(data, f, ensure_ascii=False, indent=2)
                               except Exception as e:
                                   return f"Erro ao escrever viral_segments: {e}", gr.update(), gr.update()
                               
-                              return "✅ JSON salvo com sucesso em: " + str(proj) + ".\nAGORA CLIQUE EM 'Start Processing' para continuar o corte!", gr.update(value="Existing Project", visible=True), gr.update(visible=True)
+                              projs = library.get_existing_projects()
+                              if proj_name not in projs:
+                                  projs = projs + [proj_name]
+                              n = len(data["segments"])
+                              return (f"✅ {n} segmento(s) salvos em '{proj_name}'.\n"
+                                      "AGORA CLIQUE EM 'Start Processing' para continuar o corte!",
+                                      gr.update(value="Existing Project", visible=True),
+                                      gr.update(choices=projs, value=proj_name, visible=True))
         
                          resume_manual_btn.click(
                               resume_process, 
@@ -886,92 +913,22 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                          )
 
                     
-                    # Update listeners with logic to hide/show API key
-                    
+                    # Hide/show AI fields when manual curation is toggled
+
                     def on_manual_mode_change(is_manual):
-                        return gr.update(visible=not is_manual), gr.update(visible=not is_manual), gr.update(visible=not is_manual), gr.update(visible=not is_manual), gr.update(visible=not is_manual), gr.update(visible=is_manual)
-                    
-                    manual_mode_input.change(on_manual_mode_change, inputs=manual_mode_input, outputs=[ai_backend_input, api_key_input, ai_model_input, refresh_models_btn, chunk_size_input, manual_review_group])
+                        return gr.update(visible=not is_manual), gr.update(visible=not is_manual), gr.update(visible=not is_manual), gr.update(visible=is_manual)
 
-                    def update_ai_ui(backend):
-                        show_api = (backend == "gemini")
-                        show_refresh = (backend == "local")
-                        
-                        # Definições padrão para evitar que fiquem vazios
-                        new_choices = []
-                        new_val = ""
-                        new_chunk = 70000
-                        
-                        if backend == "gemini":
-                            new_choices = GEMINI_MODELS
-                            new_val = GEMINI_MODELS[0]
-                            new_chunk = 70000
-                        elif backend == "g4f":
-                            new_choices = G4F_MODELS
-                            new_val = G4F_MODELS[5]
-                            new_chunk = 70000
-                        elif backend == "local":
-                            models = get_local_models()
-                            new_choices = models if models else [i18n("No models found")]
-                            new_val = new_choices[0]
-                            new_chunk = 30000
-                        else: # Manual
-                             pass
+                    manual_mode_input.change(on_manual_mode_change, inputs=manual_mode_input, outputs=[api_key_input, ai_model_input, chunk_size_input, manual_review_group])
 
-                        return (
-                            gr.update(visible=show_api), # API Key Visibility (Fixes hole 1)
-                            gr.update(choices=new_choices, value=new_val, visible=(backend != "manual")), # Model Dropdown
-                            gr.update(visible=show_refresh), # Refresh Button
-                            gr.update(value=new_chunk) # Chunk Size
-                        )
-
-                    def refresh_local_models():
-                        models = get_local_models()
-                        val = models[0] if models else i18n("No models found")
-                        return gr.update(choices=models, value=val)
-
-                    refresh_models_btn.click(refresh_local_models, outputs=ai_model_input)
-                    ai_backend_input.change(update_ai_ui, inputs=ai_backend_input, outputs=[api_key_input, ai_model_input, refresh_models_btn, chunk_size_input])
-
-                    model_input = gr.Dropdown(["tiny", "small", "medium", "large", "large-v1", "large-v2", "large-v3", "turbo", "large-v3-turbo", "distil-large-v2", "distil-medium.en", "distil-small.en", "distil-large-v3"], label=i18n("Whisper Model"), value=ui_state.get("model", "large-v3-turbo"))
-                    with gr.Row():
-                        workflow_input = gr.Dropdown(choices=[(i18n("Full"), "Full"), (i18n("Cut Only"), "Cut Only"), (i18n("Subtitles Only"), "Subtitles Only")], label=i18n("Workflow"), value=ui_state.get("workflow", "Full"))
-                        face_model_input = gr.Dropdown(["static_center", "insightface", "mediapipe"], label=i18n("Face Model"), value=ui_state.get("face_model", "static_center"))
-                    with gr.Row():
-                        face_mode_input = gr.Dropdown(choices=[(i18n("Auto"), "auto"), ("1", "1"), ("2", "2")], label=i18n("Face Mode"), value=ui_state.get("face_mode", "auto"))
-                        face_detect_interval_input = gr.Textbox(label=i18n("Face Det. Interval"), value="0.17,1.0")
-                        no_face_mode_input = gr.Dropdown(choices=[(i18n("Padding (9:16)"), "padding"), (i18n("Zoom (Center)"), "zoom")], label=i18n("No Face Fallback"), value="zoom")
-                    
-                    
                     # Update listeners now that all components are defined
-                    input_source.change(on_source_change, inputs=input_source, outputs=[url_input, project_selector, video_upload, drive_input, workflow_input])
-             
-             with gr.Accordion(i18n("Advanced Face Settings"), open=False):
-                 face_preset_input = gr.Dropdown(choices=[(i18n(k), k) for k in FACE_PRESETS.keys()], label=i18n("Configuration Presets"), value="Default (Balanced)", interactive=True)
-                 with gr.Row():
-                      face_filter_thresh_input = gr.Slider(label=i18n("Ignore Small Faces (0.0 - 1.0)"), minimum=0.0, maximum=1.0, value=0.35, step=0.05, info=i18n("Relative size to ignore background."))
-                      face_two_thresh_input = gr.Slider(label=i18n("Threshold for 2 Faces (0.0 - 1.0)"), minimum=0.0, maximum=1.0, value=0.60, step=0.05, info=i18n("Size of 2nd face to activate split mode."))
-                      face_conf_thresh_input = gr.Slider(label=i18n("Minimum Confidence (0.0 - 1.0)"), minimum=0.0, maximum=1.0, value=0.40, step=0.05, info=i18n("Ignore detections with low confidence."))
-                      face_dead_zone_input = gr.Slider(label=i18n("Dead Zone (Stabilization)"), minimum=0, maximum=200, value=150, step=5, info=i18n("Movement pixels to ignore."))
-                 
-                 face_preset_input.change(apply_face_preset, inputs=face_preset_input, outputs=[face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input])
+                    input_source.change(on_source_change, inputs=input_source, outputs=[url_input, project_selector, video_upload, workflow_input, youtube_group])
 
-                 with gr.Accordion(i18n("Experimental: Active Speaker & Motion"), open=False):
-                        experimental_preset_input = gr.Dropdown(choices=[(i18n(k), k) for k in EXPERIMENTAL_PRESETS.keys()], label=i18n("Configuration Presets"), value="Default (Off)", interactive=True)
-                        focus_active_speaker_input = gr.Checkbox(label=i18n("Experimental: Focus on Speaker"), value=False, info=i18n("Tries to focus only on the speaking person instead of split screen."))
-                        with gr.Row():
-                            active_speaker_mar_input = gr.Slider(label=i18n("MAR Threshold (Mouth Open)"), minimum=0.01, maximum=0.20, value=0.03, step=0.005, info=i18n("Mouth open sensitivity."))
-                            active_speaker_score_diff_input = gr.Slider(label=i18n("Score Difference"), minimum=0.5, maximum=10.0, value=1.5, step=0.5, info=i18n("Minimum difference to focus on 1 face."))
-                            
-                        with gr.Row():
-                            include_motion_input = gr.Checkbox(label=i18n("Consider Motion"), value=False, info=i18n("Increases score with motion (gestures)."))
-                            
-                        with gr.Row():
-                            active_speaker_motion_threshold_input = gr.Slider(label=i18n("Motion Dead Zone"), minimum=0.0, maximum=20.0, value=3.0, step=0.5, info=i18n("Pixels ignored."))
-                            active_speaker_motion_sensitivity_input = gr.Slider(label=i18n("Motion Sensitivity"), minimum=0.01, maximum=0.5, value=0.05, step=0.01, info=i18n("Points per pixel."))
-                            active_speaker_decay_input = gr.Slider(label=i18n("Switch Speed"), minimum=0.5, maximum=5.0, value=2.0, step=0.5, info=i18n("Speed to lose focus."))
+                    # Salvar a chave de IA ao pressionar Enter (sem precisar gerar).
+                    def _save_key_and_refresh(k):
+                        save_api_key(k)
+                        return api_key_status_html()
+                    api_key_input.submit(_save_key_and_refresh, inputs=api_key_input, outputs=api_key_status)
 
-                        experimental_preset_input.change(apply_experimental_preset, inputs=experimental_preset_input, outputs=[focus_active_speaker_input, active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input, active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input])
              with gr.Accordion(i18n("Subtitle Settings (alpha)"), open=False):
                 preset_input = gr.Dropdown(choices=[(i18n(k), k) for k in subs.SUBTITLE_PRESETS.keys()], label=i18n("Quick Presets"), value="Church Clear")
                 use_custom_subs = gr.Checkbox(label=i18n("Enable Subtitle Customization (Includes Preset)"), value=True)
@@ -1047,11 +1004,50 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                 demo.load(subs.generate_preview_html, inputs=manual_inputs, outputs=preview_html, queue=False, show_progress="hidden")
                 demo.load(subs.apply_preset, inputs=[preset_input], outputs=manual_inputs, queue=False, show_progress="hidden") # Apply default preset on load
 
+             # --- Persistência viva: o que o usuário mudar vira o novo padrão ---
+             _settings_components = [
+                 video_quality_input, use_youtube_subs_input, segments_input, viral_input, themes_input,
+                 min_dur_input, max_dur_input, ai_duration_input, model_input, manual_mode_input,
+                 ai_model_input, chunk_size_input, workflow_input, margin_h_input,
+             ]
+             gr.on(
+                 triggers=[c.change for c in _settings_components],
+                 fn=save_ui_settings_live, inputs=_settings_components, outputs=None,
+                 queue=False, show_progress="hidden",
+             )
+
+             def restore_default_settings():
+                 d = DEFAULT_UI_SETTINGS
+                 save_ui_settings_live(**d)
+                 gr.Info(i18n("Configurações restauradas para o padrão."))
+                 return (
+                     gr.update(value=d["video_quality"]),
+                     gr.update(value=d["use_youtube_subs"]),
+                     gr.update(value=d["segments"]),
+                     gr.update(value=d["viral"]),
+                     gr.update(value=d["themes"]),
+                     gr.update(value=d["min_duration"], interactive=not d["ai_duration"]),
+                     gr.update(value=d["max_duration"], label=i18n("Duração máxima (segundos)")),
+                     gr.update(value=d["ai_duration"]),
+                     gr.update(value=d["model"]),
+                     gr.update(value=d["manual_mode"]),
+                     gr.update(value=d["ai_model_name"]),
+                     gr.update(value=d["chunk_size"]),
+                     gr.update(value=d["workflow"]),
+                     gr.update(value=d["margin_h"]),
+                 )
+
+             gr.HTML(styles.step_badge(4, i18n("Gerar")))
              with gr.Row():
-                 start_btn = gr.Button(i18n("Start Processing"), variant="primary", scale=2)
-                 stop_btn = gr.Button(i18n("Stop"), variant="stop", visible=False, scale=1)
+                 start_btn = gr.Button(i18n("✨ Gerar meus cortes"), variant="primary", scale=2)
+                 stop_btn = gr.Button(i18n("Parar"), variant="stop", visible=False, scale=1)
                  active_modules_info = gr.HTML(scale=3)
-             logs_output = gr.Textbox(label=i18n("Logs"), lines=10, autoscroll=True, elem_id="logs_output")
+             with gr.Row():
+                 restore_defaults_btn = gr.Button(i18n("↩️ Restaurar configurações padrão"), variant="secondary", size="sm", scale=1)
+             restore_defaults_btn.click(restore_default_settings, outputs=_settings_components, queue=False, show_progress="hidden")
+             friendly_status = gr.HTML('<div id="vc_status"></div>')
+             with gr.Accordion(i18n("Ver detalhes técnicos"), open=False):
+                 logs_output = gr.Textbox(label=i18n("Registro do processamento"), lines=10, autoscroll=True, elem_id="logs_output")
              stop_btn.click(kill_process, outputs=[logs_output])
              
              # Force scroll to bottom via JS
@@ -1078,6 +1074,47 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
                         if(ta._isSticky === undefined || ta._isSticky === true) {
                             ta.scrollTop = ta.scrollHeight;
                         }
+
+                        // Status amigável: traduz o log técnico para linguagem simples.
+                        try {
+                            var box = document.getElementById('vc_status');
+                            if (box) {
+                                var t = (ta.value || '').toLowerCase();
+                                var stages = [
+                                    ['baixando', '⬇️ Baixando o vídeo...'],
+                                    ['download', '⬇️ Baixando o vídeo...'],
+                                    ['transcre', '📝 Transcrevendo o áudio...'],
+                                    ['transcrib', '📝 Transcrevendo o áudio...'],
+                                    ['viral', '✨ Encontrando os melhores momentos...'],
+                                    ['segmento', '✨ Encontrando os melhores momentos...'],
+                                    ['cortando', '✂️ Cortando os vídeos...'],
+                                    ['cutting', '✂️ Cortando os vídeos...'],
+                                    ['editing', '🎬 Montando os cortes verticais...'],
+                                    ['editando', '🎬 Montando os cortes verticais...'],
+                                    ['legenda', '💬 Gerando as legendas...'],
+                                    ['subtitle', '💬 Gerando as legendas...'],
+                                    ['conclu', 'done'],
+                                    ['sucesso', 'done'],
+                                    ['completed', 'done']
+                                ];
+                                var stage = null, done = false;
+                                for (var i=0;i<stages.length;i++){
+                                    if (t.indexOf(stages[i][0])>=0){
+                                        if (stages[i][1]==='done'){ done = true; stage = '🎉 Pronto! Seus cortes estão prontos.'; }
+                                        else { stage = stages[i][1]; }
+                                    }
+                                }
+                                var err = (t.indexOf('traceback')>=0);
+                                if (err) { stage = '⚠️ Algo deu errado — abra "Ver detalhes técnicos" abaixo.'; }
+                                if (stage) {
+                                    var bg = err ? '#FEF2F2' : '#ECFDF5';
+                                    var col = err ? '#E11D48' : '#047857';
+                                    var bd = err ? '#FECDD3' : '#D1FAE5';
+                                    var spin = (!done && !err) ? '<span class="vc-spin" style="width:16px;height:16px;border-width:2px;margin-right:4px;"></span>' : '';
+                                    box.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:12px 16px;border-radius:12px;background:'+bg+';color:'+col+';font-weight:600;border:1px solid '+bd+';">'+spin+'<span>'+stage+'</span></div>';
+                                }
+                            }
+                        } catch(e) {}
                     }
                 }
              """)
@@ -1089,354 +1126,374 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
              
              # MUST pass all all new inputs to the run function
              start_btn.click(run_viral_cutter, inputs=[
-                 input_source, project_selector, url_input, video_upload, drive_input, segments_input, viral_input, themes_input, min_dur_input, max_dur_input, 
-                 model_input, manual_mode_input, ai_backend_input, api_key_input, ai_model_input, chunk_size_input, 
-                 workflow_input, face_model_input, face_mode_input, face_detect_interval_input, no_face_mode_input, 
-                 face_filter_thresh_input, face_two_thresh_input, face_conf_thresh_input, face_dead_zone_input, focus_active_speaker_input, 
-                 active_speaker_mar_input, active_speaker_score_diff_input, include_motion_input, active_speaker_motion_threshold_input, active_speaker_motion_sensitivity_input, active_speaker_decay_input,
-                 use_custom_subs, 
-                 # Expanded Manual Inputs mapping
-                 font_name_input, font_size_input, font_color_input, highlight_color_input, 
-                 outline_color_input, outline_thickness_input, shadow_color_input, shadow_size_input, 
+                 input_source, project_selector, url_input, video_upload, segments_input, viral_input, themes_input, min_dur_input, max_dur_input, ai_duration_input,
+                 model_input, manual_mode_input, api_key_input, ai_model_input, chunk_size_input, workflow_input,
+                 use_custom_subs,
+                 # Subtitle styling inputs
+                 font_name_input, font_size_input, font_color_input, highlight_color_input,
+                 outline_color_input, outline_thickness_input, shadow_color_input, shadow_size_input,
                  bold_input, italic_input, uppercase_input, vertical_pos_input, margin_h_input, alignment_input,
-                 # New Inputs
-                 highlight_size_input, words_per_block_input, gap_limit_input, mode_input, 
+                 highlight_size_input, words_per_block_input, gap_limit_input, mode_input,
                  underline_input, strikeout_input, border_style_input, remove_punc_input,
-                 video_quality_input, use_youtube_subs_input, translate_input, polish_subs_input
+                 video_quality_input, use_youtube_subs_input
              ], outputs=[logs_output, start_btn, stop_btn, results_html, manual_review_group, manual_review_prompt])
 
 
-        with gr.Tab(i18n("Marca d'água")) as watermark_tab:
-            gr.Markdown("### " + i18n("Configuração de Marca d'água"))
+        with gr.Tab(i18n("🎨 Identidade da Igreja")):
+            gr.HTML(styles.help_banner(i18n("Configure a identidade visual e sonora da sua igreja uma única vez. Tudo isso é aplicado automaticamente nos seus cortes.")))
+            with gr.Tabs():
+                with gr.Tab(i18n("💧 Logo / Marca d'água")) as watermark_tab:
+                    gr.Markdown("### " + i18n("Configuração de Marca d'água"))
+                    gr.HTML(styles.help_banner(i18n("Coloque o logo da sua igreja por cima de todos os cortes. Envie uma imagem PNG com fundo transparente e ajuste posição e tamanho na pré-visualização.")))
             
-            watermark_cfg = watermark_handler.load_watermark_config()
-            watermark_image_state = gr.State(value=watermark_cfg.get("watermark_image_path", None))
+                    watermark_cfg = watermark_handler.load_watermark_config()
+                    watermark_image_state = gr.State(value=watermark_cfg.get("watermark_image_path", None))
             
-            with gr.Row():
-                with gr.Column(scale=1):
-                    watermark_enabled_input = gr.Checkbox(label=i18n("Ativar Marca d'água"), value=watermark_cfg.get("enabled", False))
-                    watermark_image_input = gr.File(label=i18n("Upload Imagem da Marca d'água (PNG/JPG com fundo transparente)"), file_types=[".png", ".jpg", ".jpeg", "image"])
-                    
-                    gr.Markdown("#### " + i18n("Posição e Escala da Marca d'água"))
-                    watermark_x_input = gr.Slider(label=i18n("Posição X"), minimum=-1080, maximum=1080, value=watermark_cfg.get("position_x", 480), step=1)
-                    watermark_y_input = gr.Slider(label=i18n("Posição Y"), minimum=-1920, maximum=1920, value=watermark_cfg.get("position_y", 0), step=1)
-                    watermark_scale_input = gr.Slider(label=i18n("Escala (%)"), minimum=1, maximum=500, value=watermark_cfg.get("scale", 15), step=1)
-                    watermark_opacity_input = gr.Slider(label=i18n("Opacidade (%)"), minimum=0, maximum=100, value=watermark_cfg.get("opacity", 30), step=1)
-                    
-                    watermark_save_btn = gr.Button(i18n("💾 Salvar Marca d'água"), variant="primary")
-                    watermark_status_txt = gr.Textbox(label=i18n("Status"), interactive=False)
-                    watermark_refresh_preview_btn = gr.Button(i18n("🔄 Atualizar Preview Manualmente"))
-
-                with gr.Column(scale=1):
-                    gr.Markdown("#### " + i18n("Preview da Marca d'água (Fundo Demonstrativo)"))
-                    watermark_preview_img = gr.Image(label=i18n("Preview"), interactive=False)
-            
-            watermark_inputs = [watermark_image_input, watermark_image_state, watermark_x_input, watermark_y_input, watermark_scale_input, watermark_opacity_input]
-            watermark_triggers = [watermark_image_input, watermark_x_input, watermark_y_input, watermark_scale_input, watermark_opacity_input]
-             
-            for w_inp in watermark_triggers:
-                w_inp.change(_watermark_preview_from_saved, inputs=watermark_inputs, outputs=watermark_preview_img, queue=False, show_progress="hidden")
-             
-            watermark_refresh_preview_btn.click(_watermark_preview_from_saved, inputs=watermark_inputs, outputs=watermark_preview_img, queue=False)
-             
-            watermark_save_btn.click(
-                _save_watermark_config_and_state,
-                inputs=[watermark_enabled_input, watermark_image_input, watermark_x_input, watermark_y_input, watermark_scale_input, watermark_opacity_input],
-                outputs=[watermark_status_txt, watermark_image_state]
-            ).then(get_active_modules_html, inputs=[], outputs=active_modules_info, queue=False, show_progress="hidden")
-             
-            watermark_tab.select(_watermark_preview_from_saved, inputs=watermark_inputs, outputs=watermark_preview_img, queue=False, show_progress="hidden")
-
-        with gr.Tab(i18n("Áudio")) as audio_tab:
-            gr.Markdown("### " + i18n("Configuração de Áudio BGM (Background Music)"))
-            
-            audio_cfg = audio_handler.load_audio_config()
-            _outro_music_cfg = audio_cfg.get("outro_music", {})
-            audio_file_state = gr.State(value=audio_cfg.get("audio_file_path", None))
-            outro_music_file_state = gr.State(value=_outro_music_cfg.get("audio_file_path", None))
-            
-            with gr.Row():
-                with gr.Column(scale=1):
-                    audio_enabled_input = gr.Checkbox(label=i18n("Ativar Áudio de Fundo"), value=audio_cfg.get("enabled", False))
-                    audio_file_input = gr.File(label=i18n("Upload de Áudio (MP3, WAV, etc.)"), file_types=["audio"])
-                    
-                    gr.Markdown("#### " + i18n("Ajustes Globais"))
-                    audio_base_volume_input = gr.Slider(label=i18n("Volume Base (%)"), minimum=0, maximum=100, value=audio_cfg.get("base_volume", 12), step=1)
-                    audio_loop_input = gr.Checkbox(label=i18n("Loop: Repetir áudio até o final do vídeo"), value=audio_cfg.get("loop_to_end", True))
-                    
                     with gr.Row():
-                        audio_fade_in_input = gr.Slider(label=i18n("Fade-in Inicial (s)"), minimum=0.0, maximum=10.0, value=audio_cfg.get("fade_in_duration", 0.5), step=0.5)
-                        audio_fade_out_input = gr.Slider(label=i18n("Fade-out Final (s)"), minimum=0.0, maximum=10.0, value=audio_cfg.get("fade_out_duration", 0.5), step=0.5)
+                        with gr.Column(scale=1):
+                            watermark_enabled_input = gr.Checkbox(label=i18n("Ativar Marca d'água"), value=watermark_cfg.get("enabled", False))
+                            watermark_image_input = gr.File(label=i18n("Upload Imagem da Marca d'água (PNG/JPG com fundo transparente)"), file_types=[".png", ".jpg", ".jpeg", "image"])
+                            watermark_saved_assets = gr.HTML(_watermark_asset_from_state(watermark_cfg.get("watermark_image_path")))
 
-                with gr.Column(scale=1):
-                    gr.Markdown("#### " + i18n("Opções de Fim de Vídeo"))
-                    gr.Markdown(i18n("Aumente ou reduza o volume do áudio de fundo automaticamente nos últimos segundos do vídeo."))
-                    audio_stop_before_outro_input = gr.Checkbox(label=i18n("💥 Parar Áudio BGM antes do Encerramento / Outro começar"), value=audio_cfg.get("stop_before_outro", True), info="Use se o seu Outro já possuir música própria.")
-                    audio_use_ending_volume_input = gr.Checkbox(label=i18n("Ativar Variação de Volume no Final"), value=audio_cfg.get("use_ending_volume", True))
-                    audio_sync_outro_input = gr.Checkbox(label=i18n("Sincronizar tempo de Volume automaticamente com o Encerramento / Outro"), value=audio_cfg.get("sync_with_outro", True))
-                    audio_ending_volume_input = gr.Slider(label=i18n("Volume Secundário / Final (%)"), minimum=0, maximum=100, value=audio_cfg.get("ending_volume", 20), step=1)
+                            gr.Markdown("#### " + i18n("Posição e Escala da Marca d'água"))
+                            watermark_x_input = gr.Slider(label=i18n("Posição X"), minimum=-1080, maximum=1080, value=watermark_cfg.get("position_x", 480), step=1)
+                            watermark_y_input = gr.Slider(label=i18n("Posição Y"), minimum=-1920, maximum=1920, value=watermark_cfg.get("position_y", 0), step=1)
+                            watermark_scale_input = gr.Slider(label=i18n("Escala (%)"), minimum=1, maximum=500, value=watermark_cfg.get("scale", 15), step=1)
+                            watermark_opacity_input = gr.Slider(label=i18n("Opacidade (%)"), minimum=0, maximum=100, value=watermark_cfg.get("opacity", 30), step=1)
                     
-                    audio_ending_start_time_input = gr.Slider(label=i18n("Iniciar quantos segundos antes de acabar? (Ignorado se 'Sincronizar' estiver ativo)"), minimum=0, maximum=60, value=audio_cfg.get("ending_start_time", 10), step=1, visible=not audio_cfg.get("sync_with_outro", True))
-                    audio_crossfade_input = gr.Slider(label=i18n("Suavização da Variação (s) (Ignorado se 'Sincronizar' estiver ativo)"), minimum=0.0, maximum=10.0, value=audio_cfg.get("crossfade_duration", 3.0), step=0.5, visible=not audio_cfg.get("sync_with_outro", True))
+                            watermark_save_btn = gr.Button(i18n("💾 Salvar Marca d'água"), variant="primary")
+                            watermark_status_txt = gr.Textbox(label=i18n("Status"), interactive=False)
+                            watermark_refresh_preview_btn = gr.Button(i18n("🔄 Atualizar Preview Manualmente"))
 
-            gr.Markdown("---")
-            gr.Markdown("### 🎵 " + i18n("Música de Encerramento (Outro Music)"))
-            gr.Markdown(i18n("Toca uma música específica durante a vinheta de encerramento. A BGM fará fade-out na transição e esta música fará fade-in no mesmo momento."))
-
-            with gr.Row():
-                with gr.Column(scale=1):
-                    outro_music_enabled_input = gr.Checkbox(
-                        label=i18n("Ativar Música de Encerramento"),
-                        value=_outro_music_cfg.get("enabled", False),
-                        info=i18n("Requer que o Outro/Encerramento esteja ativo."),
-                    )
-                    outro_music_file_input = gr.File(
-                        label=i18n("Upload da Música de Encerramento (MP3, WAV, etc.)"),
-                        file_types=["audio"],
-                    )
-                    outro_music_volume_input = gr.Slider(
-                        label=i18n("Volume da Música de Encerramento (%)"),
-                        minimum=0, maximum=100,
-                        value=_outro_music_cfg.get("volume", 50),
-                        step=1,
-                    )
-                    outro_music_start_from_input = gr.Dropdown(
-                        label=i18n("Usar trecho do arquivo"),
-                        choices=[
-                            (i18n("Início do arquivo"), "start"),
-                            (i18n("Final do arquivo"), "end"),
-                        ],
-                        value=_outro_music_cfg.get("start_from", "end"),
-                        info=i18n("Ex: música de 40s, Outro de 10s → 'Início' usa os primeiros 10s, 'Final' usa os últimos 10s."),
-                    )
-
-                with gr.Column(scale=1):
-                    outro_music_fade_in_input = gr.Slider(
-                        label=i18n("Fade-in da Música de Encerramento (s)"),
-                        minimum=0.0, maximum=10.0,
-                        value=_outro_music_cfg.get("fade_in_duration", 1),
-                        step=0.5,
-                    )
-                    outro_music_fade_out_enabled_input = gr.Checkbox(
-                        label=i18n("Ativar Fade-out no final da Música de Encerramento"),
-                        value=_outro_music_cfg.get("fade_out_enabled", True),
-                    )
-                    outro_music_fade_out_input = gr.Slider(
-                        label=i18n("Fade-out da Música de Encerramento (s)"),
-                        minimum=0.0, maximum=10.0,
-                        value=_outro_music_cfg.get("fade_out_duration", 1),
-                        step=0.5,
-                        visible=_outro_music_cfg.get("fade_out_enabled", True),
-                    )
-
-            with gr.Row():
-                audio_save_btn = gr.Button(i18n("💾 Salvar Configurações de Áudio"), variant="primary")
-            audio_status_txt = gr.Textbox(label=i18n("Status"), interactive=False)
+                        with gr.Column(scale=1):
+                            gr.Markdown("#### " + i18n("Preview da Marca d'água (Fundo Demonstrativo)"))
+                            watermark_preview_img = gr.Image(label=i18n("Preview"), interactive=False)
             
-            gr.Markdown("---")
-            gr.Markdown("### " + i18n("Preview do Volume Base em Tempo Real"))
-            with gr.Row():
-                with gr.Column():
-                    audio_preview_video_input = gr.File(label=i18n("Upload de um Vídeo Teste (Para servir de base)"), file_types=["video"], file_count="single")
-                with gr.Column():
-                    audio_preview_html = gr.HTML('<div style="color:#888; padding: 20px; text-align:center;">' + i18n('Adicione o arquivo de Áudio (acima) e um Vídeo de teste (ao lado) para ouvir o volume tocar de fundo junto com o vídeo.') + '</div>')
-                    
-            # Helper to hide/show manual sliders based on sync checkbox
-            def toggle_sync_visibility(is_sync):
-                return gr.update(visible=not is_sync), gr.update(visible=not is_sync)
+                    watermark_inputs = [watermark_image_input, watermark_image_state, watermark_x_input, watermark_y_input, watermark_scale_input, watermark_opacity_input]
+                    watermark_triggers = [watermark_image_input, watermark_x_input, watermark_y_input, watermark_scale_input, watermark_opacity_input]
+             
+                    for w_inp in watermark_triggers:
+                        w_inp.change(_watermark_preview_from_saved, inputs=watermark_inputs, outputs=watermark_preview_img, queue=False, show_progress="hidden")
+             
+                    watermark_refresh_preview_btn.click(_watermark_preview_from_saved, inputs=watermark_inputs, outputs=watermark_preview_img, queue=False)
+             
+                    watermark_save_btn.click(
+                        _save_watermark_config_and_state,
+                        inputs=[watermark_enabled_input, watermark_image_input, watermark_x_input, watermark_y_input, watermark_scale_input, watermark_opacity_input],
+                        outputs=[watermark_status_txt, watermark_image_state]
+                    ).then(
+                        _watermark_asset_from_state, inputs=[watermark_image_state], outputs=watermark_saved_assets, queue=False, show_progress="hidden"
+                    ).then(get_active_modules_html, inputs=[], outputs=active_modules_info, queue=False, show_progress="hidden")
 
-            def toggle_outro_fade_out_visibility(enabled):
-                return gr.update(visible=enabled)
+                    watermark_tab.select(_watermark_preview_from_saved, inputs=watermark_inputs, outputs=watermark_preview_img, queue=False, show_progress="hidden")
+                    watermark_tab.select(_watermark_asset_from_state, inputs=[watermark_image_state], outputs=watermark_saved_assets, queue=False, show_progress="hidden")
+
+                with gr.Tab(i18n("🎵 Trilha sonora")) as audio_tab:
+                    gr.Markdown("### " + i18n("Configuração de Áudio BGM (Background Music)"))
+                    gr.HTML(styles.help_banner(i18n("Toca uma música de fundo baixinha durante os cortes. Envie um arquivo de áudio e ajuste o volume — dá para ouvir a prévia antes de salvar.")))
+            
+                    audio_cfg = audio_handler.load_audio_config()
+                    _outro_music_cfg = audio_cfg.get("outro_music", {})
+                    audio_file_state = gr.State(value=audio_cfg.get("audio_file_path", None))
+                    outro_music_file_state = gr.State(value=_outro_music_cfg.get("audio_file_path", None))
+            
+                    with gr.Row():
+                        with gr.Column(scale=1):
+                            audio_enabled_input = gr.Checkbox(label=i18n("Ativar Áudio de Fundo"), value=audio_cfg.get("enabled", False))
+                            audio_file_input = gr.File(label=i18n("Upload de Áudio (MP3, WAV, etc.)"), file_types=["audio"])
+                            audio_saved_assets = gr.HTML(_audio_assets_from_state(audio_cfg.get("audio_file_path"), _outro_music_cfg.get("audio_file_path")))
+
+                            gr.Markdown("#### " + i18n("Ajustes Globais"))
+                            audio_base_volume_input = gr.Slider(label=i18n("Volume Base (%)"), minimum=0, maximum=100, value=audio_cfg.get("base_volume", 12), step=1)
+                            audio_loop_input = gr.Checkbox(label=i18n("Loop: Repetir áudio até o final do vídeo"), value=audio_cfg.get("loop_to_end", True))
+                    
+                            with gr.Row():
+                                audio_fade_in_input = gr.Slider(label=i18n("Fade-in Inicial (s)"), minimum=0.0, maximum=10.0, value=audio_cfg.get("fade_in_duration", 0.5), step=0.5)
+                                audio_fade_out_input = gr.Slider(label=i18n("Fade-out Final (s)"), minimum=0.0, maximum=10.0, value=audio_cfg.get("fade_out_duration", 0.5), step=0.5)
+
+                        with gr.Column(scale=1):
+                            gr.Markdown("#### " + i18n("Opções de Fim de Vídeo"))
+                            gr.Markdown(i18n("Aumente ou reduza o volume do áudio de fundo automaticamente nos últimos segundos do vídeo."))
+                            audio_stop_before_outro_input = gr.Checkbox(label=i18n("💥 Parar Áudio BGM antes do Encerramento / Outro começar"), value=audio_cfg.get("stop_before_outro", True), info="Use se o seu Outro já possuir música própria.")
+                            audio_use_ending_volume_input = gr.Checkbox(label=i18n("Ativar Variação de Volume no Final"), value=audio_cfg.get("use_ending_volume", True))
+                            audio_sync_outro_input = gr.Checkbox(label=i18n("Sincronizar tempo de Volume automaticamente com o Encerramento / Outro"), value=audio_cfg.get("sync_with_outro", True))
+                            audio_ending_volume_input = gr.Slider(label=i18n("Volume Secundário / Final (%)"), minimum=0, maximum=100, value=audio_cfg.get("ending_volume", 20), step=1)
+                    
+                            audio_ending_start_time_input = gr.Slider(label=i18n("Iniciar quantos segundos antes de acabar? (Ignorado se 'Sincronizar' estiver ativo)"), minimum=0, maximum=60, value=audio_cfg.get("ending_start_time", 10), step=1, visible=not audio_cfg.get("sync_with_outro", True))
+                            audio_crossfade_input = gr.Slider(label=i18n("Suavização da Variação (s) (Ignorado se 'Sincronizar' estiver ativo)"), minimum=0.0, maximum=10.0, value=audio_cfg.get("crossfade_duration", 3.0), step=0.5, visible=not audio_cfg.get("sync_with_outro", True))
+
+                    gr.Markdown("---")
+                    gr.Markdown("### 🎵 " + i18n("Música de Encerramento (Outro Music)"))
+                    gr.Markdown(i18n("Toca uma música específica durante a vinheta de encerramento. A BGM fará fade-out na transição e esta música fará fade-in no mesmo momento."))
+
+                    with gr.Row():
+                        with gr.Column(scale=1):
+                            outro_music_enabled_input = gr.Checkbox(
+                                label=i18n("Ativar Música de Encerramento"),
+                                value=_outro_music_cfg.get("enabled", False),
+                                info=i18n("Requer que o Outro/Encerramento esteja ativo."),
+                            )
+                            outro_music_file_input = gr.File(
+                                label=i18n("Upload da Música de Encerramento (MP3, WAV, etc.)"),
+                                file_types=["audio"],
+                            )
+                            outro_music_volume_input = gr.Slider(
+                                label=i18n("Volume da Música de Encerramento (%)"),
+                                minimum=0, maximum=100,
+                                value=_outro_music_cfg.get("volume", 50),
+                                step=1,
+                            )
+                            outro_music_start_from_input = gr.Dropdown(
+                                label=i18n("Usar trecho do arquivo"),
+                                choices=[
+                                    (i18n("Início do arquivo"), "start"),
+                                    (i18n("Final do arquivo"), "end"),
+                                ],
+                                value=_outro_music_cfg.get("start_from", "end"),
+                                info=i18n("Ex: música de 40s, Outro de 10s → 'Início' usa os primeiros 10s, 'Final' usa os últimos 10s."),
+                            )
+
+                        with gr.Column(scale=1):
+                            outro_music_fade_in_input = gr.Slider(
+                                label=i18n("Fade-in da Música de Encerramento (s)"),
+                                minimum=0.0, maximum=10.0,
+                                value=_outro_music_cfg.get("fade_in_duration", 1),
+                                step=0.5,
+                            )
+                            outro_music_fade_out_enabled_input = gr.Checkbox(
+                                label=i18n("Ativar Fade-out no final da Música de Encerramento"),
+                                value=_outro_music_cfg.get("fade_out_enabled", True),
+                            )
+                            outro_music_fade_out_input = gr.Slider(
+                                label=i18n("Fade-out da Música de Encerramento (s)"),
+                                minimum=0.0, maximum=10.0,
+                                value=_outro_music_cfg.get("fade_out_duration", 1),
+                                step=0.5,
+                                visible=_outro_music_cfg.get("fade_out_enabled", True),
+                            )
+
+                    with gr.Row():
+                        audio_save_btn = gr.Button(i18n("💾 Salvar Configurações de Áudio"), variant="primary")
+                    audio_status_txt = gr.Textbox(label=i18n("Status"), interactive=False)
+            
+                    gr.Markdown("---")
+                    gr.Markdown("### " + i18n("Preview do Volume Base em Tempo Real"))
+                    with gr.Row():
+                        with gr.Column():
+                            audio_preview_video_input = gr.File(label=i18n("Upload de um Vídeo Teste (Para servir de base)"), file_types=["video"], file_count="single")
+                        with gr.Column():
+                            audio_preview_html = gr.HTML('<div style="color:#888; padding: 20px; text-align:center;">' + i18n('Adicione o arquivo de Áudio (acima) e um Vídeo de teste (ao lado) para ouvir o volume tocar de fundo junto com o vídeo.') + '</div>')
+                    
+                    # Helper to hide/show manual sliders based on sync checkbox
+                    def toggle_sync_visibility(is_sync):
+                        return gr.update(visible=not is_sync), gr.update(visible=not is_sync)
+
+                    def toggle_outro_fade_out_visibility(enabled):
+                        return gr.update(visible=enabled)
                 
-            audio_sync_outro_input.change(toggle_sync_visibility, inputs=audio_sync_outro_input, outputs=[audio_ending_start_time_input, audio_crossfade_input], queue=False, show_progress="hidden")
+                    audio_sync_outro_input.change(toggle_sync_visibility, inputs=audio_sync_outro_input, outputs=[audio_ending_start_time_input, audio_crossfade_input], queue=False, show_progress="hidden")
 
-            outro_music_fade_out_enabled_input.change(
-                toggle_outro_fade_out_visibility,
-                inputs=outro_music_fade_out_enabled_input,
-                outputs=outro_music_fade_out_input,
-                queue=False,
-                show_progress="hidden",
-            )
-            
-            def _save_audio_config_with_outro(
-                enabled, audio_file_path, base_volume, loop_to_end,
-                fade_in_duration, fade_out_duration, crossfade_duration,
-                use_ending_volume, stop_before_outro, sync_with_outro,
-                ending_volume, ending_start_time,
-                outro_music_enabled, outro_music_file, outro_music_volume,
-                outro_music_start_from, outro_music_fade_in,
-                outro_music_fade_out_enabled, outro_music_fade_out,
-            ):
-                status = audio_handler.save_audio_config(
-                    enabled=enabled,
-                    audio_file_path=audio_file_path,
-                    base_volume=base_volume,
-                    loop_to_end=loop_to_end,
-                    fade_in_duration=fade_in_duration,
-                    fade_out_duration=fade_out_duration,
-                    crossfade_duration=crossfade_duration,
-                    use_ending_volume=use_ending_volume,
-                    stop_before_outro=stop_before_outro,
-                    sync_with_outro=sync_with_outro,
-                    ending_volume=ending_volume,
-                    ending_start_time=ending_start_time,
-                    source_video_volume=None,  # preserve existing value
-                    outro_music_enabled=outro_music_enabled,
-                    outro_music_file=outro_music_file,
-                    outro_music_volume=outro_music_volume,
-                    outro_music_start_from=outro_music_start_from,
-                    outro_music_fade_in=outro_music_fade_in,
-                    outro_music_fade_out_enabled=outro_music_fade_out_enabled,
-                    outro_music_fade_out=outro_music_fade_out,
-                )
-                cfg = audio_handler.load_audio_config()
-                outro_music_cfg = cfg.get("outro_music", {}) or {}
-                return status, cfg.get("audio_file_path"), outro_music_cfg.get("audio_file_path")
-
-            audio_save_btn.click(
-                _save_audio_config_with_outro,
-                inputs=[
-                    audio_enabled_input, audio_file_input, audio_base_volume_input, audio_loop_input,
-                    audio_fade_in_input, audio_fade_out_input, audio_crossfade_input,
-                    audio_use_ending_volume_input, audio_stop_before_outro_input, audio_sync_outro_input,
-                    audio_ending_volume_input, audio_ending_start_time_input,
-                    outro_music_enabled_input,
-                    outro_music_file_input,
-                    outro_music_volume_input,
-                    outro_music_start_from_input,
-                    outro_music_fade_in_input,
-                    outro_music_fade_out_enabled_input,
-                    outro_music_fade_out_input,
-                ],
-                outputs=[audio_status_txt, audio_file_state, outro_music_file_state]
-            ).then(get_active_modules_html, inputs=[], outputs=active_modules_info, queue=False, show_progress="hidden")
-
-            
-            # Preview Triggers
-            audio_preview_video_input.change(
-                _audio_preview_from_saved,
-                inputs=[audio_preview_video_input, audio_file_input, audio_file_state, audio_base_volume_input, audio_loop_input],
-                outputs=audio_preview_html,
-                queue=False,
-            )
-            audio_file_input.change(
-                _audio_preview_from_saved,
-                inputs=[audio_preview_video_input, audio_file_input, audio_file_state, audio_base_volume_input, audio_loop_input],
-                outputs=audio_preview_html,
-                queue=False,
-            )
-            
-            # Real-time Volume Adjustment via JS (only affects the preview HTML logic, doesn't reload the file)
-            audio_base_volume_input.change(
-                None,
-                inputs=[audio_base_volume_input],
-                outputs=None,
-                js="(vol) => { let a = document.getElementById('audio_preview_aud'); if(a) { a.volume = parseFloat(vol)/100.0; } }"
-            )
-
-
-        with gr.Tab(i18n("Volume Original")) as original_volume_tab:
-            gr.Markdown("### " + i18n("Visualização em Tempo Real do Volume Original"))
-            gr.Markdown(i18n("Ajuste o volume final do áudio original do vídeo. Este valor será aplicado na exportação, mesmo sem BGM."))
-
-            source_volume_cfg = audio_handler.load_audio_config()
-            try:
-                source_volume_default = float(source_volume_cfg.get("source_video_volume", 200.0))
-            except (TypeError, ValueError):
-                source_volume_default = 200.0
-            source_volume_default = max(0.0, min(200.0, source_volume_default))
-
-            with gr.Row():
-                with gr.Column(scale=1):
-                    source_video_volume_input = gr.Slider(
-                        label=i18n("Volume do Vídeo Original (%)"),
-                        minimum=0,
-                        maximum=200,
-                        value=source_volume_default,
-                        step=1,
-                        info=i18n("0% = mudo, 100% = original, acima de 100% amplifica o áudio.")
+                    outro_music_fade_out_enabled_input.change(
+                        toggle_outro_fade_out_visibility,
+                        inputs=outro_music_fade_out_enabled_input,
+                        outputs=outro_music_fade_out_input,
+                        queue=False,
+                        show_progress="hidden",
                     )
-                    gr.Markdown(f"**{i18n('Volume Atual')}: <span id='original_volume_slider_value'>{int(round(source_volume_default))}%</span>**")
-                    source_preview_video_input = gr.File(
-                        label=i18n("Upload de um Vídeo Teste (Prévia do Áudio Original)"),
-                        file_types=["video"],
-                        file_count="single"
+            
+                    def _save_audio_config_with_outro(
+                        enabled, audio_file_path, base_volume, loop_to_end,
+                        fade_in_duration, fade_out_duration, crossfade_duration,
+                        use_ending_volume, stop_before_outro, sync_with_outro,
+                        ending_volume, ending_start_time,
+                        outro_music_enabled, outro_music_file, outro_music_volume,
+                        outro_music_start_from, outro_music_fade_in,
+                        outro_music_fade_out_enabled, outro_music_fade_out,
+                    ):
+                        status = audio_handler.save_audio_config(
+                            enabled=enabled,
+                            audio_file_path=audio_file_path,
+                            base_volume=base_volume,
+                            loop_to_end=loop_to_end,
+                            fade_in_duration=fade_in_duration,
+                            fade_out_duration=fade_out_duration,
+                            crossfade_duration=crossfade_duration,
+                            use_ending_volume=use_ending_volume,
+                            stop_before_outro=stop_before_outro,
+                            sync_with_outro=sync_with_outro,
+                            ending_volume=ending_volume,
+                            ending_start_time=ending_start_time,
+                            source_video_volume=None,  # preserve existing value
+                            outro_music_enabled=outro_music_enabled,
+                            outro_music_file=outro_music_file,
+                            outro_music_volume=outro_music_volume,
+                            outro_music_start_from=outro_music_start_from,
+                            outro_music_fade_in=outro_music_fade_in,
+                            outro_music_fade_out_enabled=outro_music_fade_out_enabled,
+                            outro_music_fade_out=outro_music_fade_out,
+                        )
+                        cfg = audio_handler.load_audio_config()
+                        outro_music_cfg = cfg.get("outro_music", {}) or {}
+                        return status, cfg.get("audio_file_path"), outro_music_cfg.get("audio_file_path")
+
+                    audio_save_btn.click(
+                        _save_audio_config_with_outro,
+                        inputs=[
+                            audio_enabled_input, audio_file_input, audio_base_volume_input, audio_loop_input,
+                            audio_fade_in_input, audio_fade_out_input, audio_crossfade_input,
+                            audio_use_ending_volume_input, audio_stop_before_outro_input, audio_sync_outro_input,
+                            audio_ending_volume_input, audio_ending_start_time_input,
+                            outro_music_enabled_input,
+                            outro_music_file_input,
+                            outro_music_volume_input,
+                            outro_music_start_from_input,
+                            outro_music_fade_in_input,
+                            outro_music_fade_out_enabled_input,
+                            outro_music_fade_out_input,
+                        ],
+                        outputs=[audio_status_txt, audio_file_state, outro_music_file_state]
+                    ).then(
+                        _audio_assets_from_state, inputs=[audio_file_state, outro_music_file_state], outputs=audio_saved_assets, queue=False, show_progress="hidden"
+                    ).then(get_active_modules_html, inputs=[], outputs=active_modules_info, queue=False, show_progress="hidden")
+
+            
+                    # Preview Triggers
+                    audio_preview_video_input.change(
+                        _audio_preview_from_saved,
+                        inputs=[audio_preview_video_input, audio_file_input, audio_file_state, audio_base_volume_input, audio_loop_input],
+                        outputs=audio_preview_html,
+                        queue=False,
                     )
-                    source_volume_save_btn = gr.Button(i18n("💾 Salvar Volume Original"), variant="primary")
-                    source_volume_status_txt = gr.Textbox(label=i18n("Status"), interactive=False)
-                with gr.Column(scale=1):
-                    source_preview_html = gr.HTML(
-                        '<div style="color:#888; padding: 20px; text-align:center;">' +
-                        i18n("Carregue um vídeo para pré-visualizar o áudio original em tempo real.") +
-                        '</div>'
+                    audio_file_input.change(
+                        _audio_preview_from_saved,
+                        inputs=[audio_preview_video_input, audio_file_input, audio_file_state, audio_base_volume_input, audio_loop_input],
+                        outputs=audio_preview_html,
+                        queue=False,
+                    )
+            
+                    # Real-time Volume Adjustment via JS (only affects the preview HTML logic, doesn't reload the file)
+                    audio_base_volume_input.change(
+                        None,
+                        inputs=[audio_base_volume_input],
+                        outputs=None,
+                        js="(vol) => { let a = document.getElementById('audio_preview_aud'); if(a) { a.volume = parseFloat(vol)/100.0; } }"
                     )
 
-            source_preview_video_input.change(
-                original_volume_handler.generate_original_volume_preview,
-                inputs=[source_preview_video_input, source_video_volume_input],
-                outputs=source_preview_html
-            )
 
-            source_video_volume_input.change(
-                None,
-                inputs=[source_video_volume_input],
-                outputs=None,
-                js="(vol) => { const safe = Math.max(0, Math.min(200, Number(vol) || 0)); const sliderLabel = document.getElementById('original_volume_slider_value'); if (sliderLabel) { sliderLabel.textContent = Math.round(safe) + '%'; } if (window.vcUpdateOriginalVolume) { window.vcUpdateOriginalVolume(safe); } }"
-            )
+                with gr.Tab(i18n("🔊 Volume do vídeo")) as original_volume_tab:
+                    gr.Markdown("### " + i18n("Visualização em Tempo Real do Volume Original"))
+                    gr.HTML(styles.help_banner(i18n("Controla o volume da voz original do vídeo nos cortes. Use se a pregação ficou baixa ou alta demais.")))
+                    gr.Markdown(i18n("Ajuste o volume final do áudio original do vídeo. Este valor será aplicado na exportação, mesmo sem BGM."))
 
-            source_volume_save_btn.click(
-                audio_handler.save_source_video_volume,
-                inputs=[source_video_volume_input],
-                outputs=source_volume_status_txt
-            ).then(get_active_modules_html, inputs=[], outputs=active_modules_info)
+                    source_volume_cfg = audio_handler.load_audio_config()
+                    try:
+                        source_volume_default = float(source_volume_cfg.get("source_video_volume", 200.0))
+                    except (TypeError, ValueError):
+                        source_volume_default = 200.0
+                    source_volume_default = max(0.0, min(200.0, source_volume_default))
 
-        with gr.Tab(i18n("Outro / Encerramento")) as outro_tab:
-            gr.Markdown(f"### {i18n('Configuração de Outro/Encerramento')}")
+                    with gr.Row():
+                        with gr.Column(scale=1):
+                            source_video_volume_input = gr.Slider(
+                                label=i18n("Volume do Vídeo Original (%)"),
+                                minimum=0,
+                                maximum=200,
+                                value=source_volume_default,
+                                step=1,
+                                info=i18n("0% = mudo, 100% = original, acima de 100% amplifica o áudio.")
+                            )
+                            gr.Markdown(f"**{i18n('Volume Atual')}: <span id='original_volume_slider_value'>{int(round(source_volume_default))}%</span>**")
+                            source_preview_video_input = gr.File(
+                                label=i18n("Upload de um Vídeo Teste (Prévia do Áudio Original)"),
+                                file_types=["video"],
+                                file_count="single"
+                            )
+                            source_volume_save_btn = gr.Button(i18n("💾 Salvar Volume Original"), variant="primary")
+                            source_volume_status_txt = gr.Textbox(label=i18n("Status"), interactive=False)
+                        with gr.Column(scale=1):
+                            source_preview_html = gr.HTML(
+                                '<div style="color:#888; padding: 20px; text-align:center;">' +
+                                i18n("Carregue um vídeo para pré-visualizar o áudio original em tempo real.") +
+                                '</div>'
+                            )
+
+                    source_preview_video_input.change(
+                        original_volume_handler.generate_original_volume_preview,
+                        inputs=[source_preview_video_input, source_video_volume_input],
+                        outputs=source_preview_html
+                    )
+
+                    source_video_volume_input.change(
+                        None,
+                        inputs=[source_video_volume_input],
+                        outputs=None,
+                        js="(vol) => { const safe = Math.max(0, Math.min(200, Number(vol) || 0)); const sliderLabel = document.getElementById('original_volume_slider_value'); if (sliderLabel) { sliderLabel.textContent = Math.round(safe) + '%'; } if (window.vcUpdateOriginalVolume) { window.vcUpdateOriginalVolume(safe); } }"
+                    )
+
+                    source_volume_save_btn.click(
+                        audio_handler.save_source_video_volume,
+                        inputs=[source_video_volume_input],
+                        outputs=source_volume_status_txt
+                    ).then(get_active_modules_html, inputs=[], outputs=active_modules_info)
+
+                with gr.Tab(i18n("🎬 Encerramento")) as outro_tab:
+                    gr.Markdown(f"### {i18n('Configuração de Outro/Encerramento')}")
+                    gr.HTML(styles.help_banner(i18n("Adiciona uma vinheta no fim de cada corte (ex.: convite para seguir a igreja). Envie um vídeo curto e, se quiser, uma imagem por cima.")))
             
-            outro_cfg = outro_handler.load_outro_config()
-            outro_video_state = gr.State(value=outro_cfg.get("outro_video_path", None))
-            outro_image_state = gr.State(value=outro_cfg.get("overlay_image_path", None))
+                    outro_cfg = outro_handler.load_outro_config()
+                    outro_video_state = gr.State(value=outro_cfg.get("outro_video_path", None))
+                    outro_image_state = gr.State(value=outro_cfg.get("overlay_image_path", None))
             
-            with gr.Row():
-                with gr.Column(scale=1):
-                    outro_enabled_input = gr.Checkbox(label=i18n("Ativar Outro / Encerramento"), value=outro_cfg.get("enabled", False))
-                    outro_video_input = gr.File(label=i18n("Upload Vídeo de Encerramento (MP4)"), file_types=[".mp4", ".mov", "video"])
-                    outro_image_input = gr.File(label=i18n("Upload Imagem Overlay (PNG/JPG)"), file_types=[".png", ".jpg", ".jpeg", "image"])
-                    
-                    outro_fade_input = gr.Slider(label=i18n("Duração do Fade (s)"), minimum=0.0, maximum=3.0, value=outro_cfg.get("fade_duration", 1), step=0.1)
-                    
-                    gr.Markdown(f"#### {i18n('Posição e Escala da Imagem')}")
-                    outro_x_input = gr.Slider(label=i18n("Posição X"), minimum=-1080, maximum=1080, value=outro_cfg.get("position_x", 179), step=1)
-                    outro_y_input = gr.Slider(label=i18n("Posição Y"), minimum=-1920, maximum=1920, value=outro_cfg.get("position_y", 886), step=1)
-                    outro_scale_input = gr.Slider(label=i18n("Escala (%)"), minimum=1, maximum=500, value=outro_cfg.get("scale", 42), step=1)
-                    outro_rounded_corners_input = gr.Slider(label=i18n("Bordas Arredondadas (%)"), minimum=0, maximum=50, value=outro_cfg.get("rounded_corners", 10), step=1)
-                    
-                    outro_save_btn = gr.Button(i18n("💾 Salvar Configurações"), variant="primary")
-                    outro_status_txt = gr.Textbox(label=i18n("Status"), interactive=False)
-                    outro_refresh_preview_btn = gr.Button(i18n("🔄 Atualizar Preview Manualmente"))
+                    with gr.Row():
+                        with gr.Column(scale=1):
+                            outro_enabled_input = gr.Checkbox(label=i18n("Ativar Outro / Encerramento"), value=outro_cfg.get("enabled", False))
+                            outro_video_input = gr.File(label=i18n("Upload Vídeo de Encerramento (MP4)"), file_types=[".mp4", ".mov", "video"])
+                            outro_image_input = gr.File(label=i18n("Upload Imagem Overlay (PNG/JPG)"), file_types=[".png", ".jpg", ".jpeg", "image"])
+                            outro_saved_assets = gr.HTML(_outro_assets_from_state(outro_cfg.get("outro_video_path"), outro_cfg.get("overlay_image_path")))
 
-                with gr.Column(scale=1):
-                    gr.Markdown(f"#### {i18n('Preview da Composição')}")
-                    outro_preview_img = gr.Image(label=i18n("Preview"), interactive=False)
+                            outro_fade_input = gr.Slider(label=i18n("Duração do Fade (s)"), minimum=0.0, maximum=3.0, value=outro_cfg.get("fade_duration", 1), step=0.1)
+                            outro_volume_input = gr.Slider(
+                                label=i18n("🔊 Volume do Vídeo de Encerramento (%)"),
+                                minimum=0, maximum=200, value=outro_cfg.get("outro_volume", 100), step=5,
+                                info=i18n("Só tem efeito quando o vídeo de Outro possui áudio próprio. 100% = volume original, 0% = mudo.")
+                            )
+
+                            gr.Markdown(f"#### {i18n('Posição e Escala da Imagem')}")
+                            outro_x_input = gr.Slider(label=i18n("Posição X"), minimum=-1080, maximum=1080, value=outro_cfg.get("position_x", 179), step=1)
+                            outro_y_input = gr.Slider(label=i18n("Posição Y"), minimum=-1920, maximum=1920, value=outro_cfg.get("position_y", 886), step=1)
+                            outro_scale_input = gr.Slider(label=i18n("Escala (%)"), minimum=1, maximum=500, value=outro_cfg.get("scale", 42), step=1)
+                            outro_rounded_corners_input = gr.Slider(label=i18n("Bordas Arredondadas (%)"), minimum=0, maximum=50, value=outro_cfg.get("rounded_corners", 10), step=1)
+                    
+                            outro_save_btn = gr.Button(i18n("💾 Salvar Configurações"), variant="primary")
+                            outro_status_txt = gr.Textbox(label=i18n("Status"), interactive=False)
+                            outro_refresh_preview_btn = gr.Button(i18n("🔄 Atualizar Preview Manualmente"))
+
+                        with gr.Column(scale=1):
+                            gr.Markdown(f"#### {i18n('Preview da Composição')}")
+                            outro_preview_img = gr.Image(label=i18n("Preview"), interactive=False)
             
-            outro_inputs = [outro_video_input, outro_video_state, outro_image_input, outro_image_state, outro_x_input, outro_y_input, outro_scale_input, outro_rounded_corners_input]
-            outro_triggers = [outro_video_input, outro_image_input, outro_x_input, outro_y_input, outro_scale_input, outro_rounded_corners_input]
+                    outro_inputs = [outro_video_input, outro_video_state, outro_image_input, outro_image_state, outro_x_input, outro_y_input, outro_scale_input, outro_rounded_corners_input]
+                    outro_triggers = [outro_video_input, outro_image_input, outro_x_input, outro_y_input, outro_scale_input, outro_rounded_corners_input]
              
-            for o_inp in outro_triggers:
-                o_inp.change(_outro_preview_from_saved, inputs=outro_inputs, outputs=outro_preview_img, queue=False, show_progress="hidden")
+                    for o_inp in outro_triggers:
+                        o_inp.change(_outro_preview_from_saved, inputs=outro_inputs, outputs=outro_preview_img, queue=False, show_progress="hidden")
              
-            outro_refresh_preview_btn.click(_outro_preview_from_saved, inputs=outro_inputs, outputs=outro_preview_img, queue=False)
+                    outro_refresh_preview_btn.click(_outro_preview_from_saved, inputs=outro_inputs, outputs=outro_preview_img, queue=False)
              
-            outro_save_btn.click(
-                _save_outro_config_and_state,
-                inputs=[outro_enabled_input, outro_video_input, outro_image_input, outro_x_input, outro_y_input, outro_scale_input, outro_fade_input, outro_rounded_corners_input],
-                outputs=[outro_status_txt, outro_video_state, outro_image_state]
-            ).then(get_active_modules_html, inputs=[], outputs=active_modules_info, queue=False, show_progress="hidden")
-             
-            outro_tab.select(_outro_preview_from_saved, inputs=outro_inputs, outputs=outro_preview_img, queue=False, show_progress="hidden")
+                    outro_save_btn.click(
+                        _save_outro_config_and_state,
+                        inputs=[outro_enabled_input, outro_video_input, outro_image_input, outro_x_input, outro_y_input, outro_scale_input, outro_fade_input, outro_rounded_corners_input, outro_volume_input],
+                        outputs=[outro_status_txt, outro_video_state, outro_image_state]
+                    ).then(
+                        _outro_assets_from_state, inputs=[outro_video_state, outro_image_state], outputs=outro_saved_assets, queue=False, show_progress="hidden"
+                    ).then(get_active_modules_html, inputs=[], outputs=active_modules_info, queue=False, show_progress="hidden")
 
-        with gr.Tab(i18n("Subtitle Editor")) as subtitle_editor_tab:
-            gr.Markdown(f"### {i18n('Edit Subtitles (Smart Mode)')}")
+                    outro_tab.select(_outro_preview_from_saved, inputs=outro_inputs, outputs=outro_preview_img, queue=False, show_progress="hidden")
+                    outro_tab.select(_outro_assets_from_state, inputs=[outro_video_state, outro_image_state], outputs=outro_saved_assets, queue=False, show_progress="hidden")
+
+        with gr.Tab(i18n("✏️ Ajustar Legendas")) as subtitle_editor_tab:
+            gr.Markdown(f"### {i18n('Ajustar legendas')}")
+            gr.HTML(styles.help_banner(i18n("Corrija o texto das legendas à mão: escolha o projeto e o corte, edite na tabela e clique em renderizar para aplicar.")))
             
             with gr.Group():
                 editor_project_dropdown = gr.Dropdown(choices=[], label=i18n("Select Project"), value=None)
@@ -1603,8 +1660,9 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
             )
 
 
-        with gr.Tab(i18n("Library")) as library_tab:
-            gr.Markdown(f"### {i18n('Existing Projects')}")
+        with gr.Tab(i18n("📁 Meus Vídeos")) as library_tab:
+            gr.Markdown(f"### {i18n('Seus cortes prontos')}")
+            gr.HTML(styles.help_banner(i18n("Escolha um projeto para ver os cortes gerados. Em cada corte você pode baixar, corrigir a legenda com IA, aplicar logo/trilha/encerramento e ajustar a margem.")))
             with gr.Row():
                 project_dropdown = gr.Dropdown(choices=[], label=i18n("Select Project"), value=None)
                 refresh_btn = gr.Button(i18n("Refresh List"))
@@ -1613,20 +1671,58 @@ with gr.Blocks(title=i18n("ViralCutter WebUI"), theme=gr.themes.Default(primary_
             def on_select_project(proj_name): return library.generate_project_gallery(proj_name)
             project_dropdown.change(on_select_project, project_dropdown, project_gallery_html)
             library_tab.select(library.refresh_projects, outputs=project_dropdown, queue=False, show_progress="hidden")
-             
+
+            with gr.Accordion(i18n("🧹 Limpar Lixo (arquivos gerados)"), open=False):
+                gr.Markdown(i18n(
+                    "Apaga **todos os projetos em VIRALS**, vídeos de teste, temporários e previews. "
+                    "**NÃO** apaga a pasta 'Cortes IPB' (seus vídeos finais), os assets enviados "
+                    "(outro/logo/música), as configurações nem a chave de API.\n\n"
+                    "**Passo 1:** clique em *Analisar* para ver o que será apagado. "
+                    "**Passo 2:** confirme em *Apagar tudo*."
+                ))
+                cleanup_preview_box = gr.Textbox(label=i18n("Prévia (o que será apagado)"), lines=10, interactive=False)
+                with gr.Row():
+                    cleanup_scan_btn = gr.Button(i18n("🔎 Analisar"))
+                    cleanup_confirm_btn = gr.Button(i18n("🗑️ Apagar tudo"), variant="stop", visible=False)
+                cleanup_status = gr.Textbox(label=i18n("Status"), interactive=False)
+
+                def _scan_garbage():
+                    text, targets = library.preview_garbage()
+                    return text, gr.update(visible=len(targets) > 0), ""
+                cleanup_scan_btn.click(_scan_garbage, outputs=[cleanup_preview_box, cleanup_confirm_btn, cleanup_status])
+
+                def _do_clean():
+                    return library.clean_garbage(), gr.update(visible=False), ""
+                cleanup_confirm_btn.click(
+                    _do_clean, outputs=[cleanup_status, cleanup_confirm_btn, cleanup_preview_box]
+                ).then(library.refresh_projects, outputs=project_dropdown, queue=False, show_progress="hidden")
+
+        with gr.Tab(i18n("❓ Sobre / Ajuda")) as about_tab:
+            gr.HTML(header.about_html)
+
         demo.load(get_active_modules_html, inputs=[], outputs=active_modules_info, queue=False, show_progress="hidden")
+
+        # Ao abrir o app: pergunta (1x por inicialização) se quer limpar arquivos antigos.
+        def _startup_cleanup_check():
+            global _startup_cleanup_asked
+            if _startup_cleanup_asked:
+                return gr.update(visible=False), ""
+            _startup_cleanup_asked = True
+            text, targets = library.preview_garbage()
+            return gr.update(visible=bool(targets)), (text if targets else "")
+        demo.load(_startup_cleanup_check, outputs=[startup_cleanup_banner, startup_cleanup_box], queue=False, show_progress="hidden")
+
+        def _startup_clean_yes():
+            return library.clean_garbage(), gr.update(visible=False)
+        startup_cleanup_yes.click(
+            _startup_clean_yes, outputs=[startup_cleanup_status, startup_cleanup_banner]
+        ).then(library.refresh_projects, outputs=project_dropdown, queue=False, show_progress="hidden")
+
+        startup_cleanup_no.click(lambda: gr.update(visible=False), outputs=startup_cleanup_banner, queue=False)
     
-    gr.Markdown(f"""
-        <hr>
-        <div style='text-align: center; font-size: 0.9em; color: #777;'>
-            <p>
-                <strong>{i18n('Desenvolvido por Rafael Godoy')}</strong>
-                <br>
-                {i18n('Apoie o projeto, qualquer valor é bem-vindo:')} 
-                <a href='https://nubank.com.br/pagar/1ls6a4/0QpSSbWBSq' target='_blank'><strong>{i18n('Apoiar via PIX')}</strong></a>
-                <br>
-                {i18n('100% local • open source • no subscription required')} 
-            </p>
+    gr.HTML(f"""
+        <div style='text-align: center; font-size: 0.85em; color: #94A3B8; padding: 16px 0 6px; margin-top: 8px; border-top: 1px solid {PALETTE['border']};'>
+            Viral Cutter · Church Edition &nbsp;•&nbsp; {i18n('100% local • código aberto • sem mensalidade')}
         </div>
         """)
 if __name__ == "__main__":
@@ -1660,91 +1756,6 @@ if __name__ == "__main__":
     def attach_extra_routes(fastapi_app):
         fastapi_app.mount("/virals", StaticFiles(directory=VIRALS_DIR), name="virals")
         
-        @fastapi_app.get("/export_xml_api")
-        def export_xml_api(project: str, segment: int, background_tasks: BackgroundTasks, format: str = "premiere"):
-            try:
-                # Security: sanitize project name to prevent path traversal
-                safe_project = os.path.basename(project)
-                project_path = os.path.join(VIRALS_DIR, safe_project)
-                if not os.path.exists(project_path):
-                    return {"error": f"Project not found: {safe_project}"}
-                script_path = os.path.join(WORKING_DIR, "scripts", "export_xml.py")
-                cmd = [sys.executable, script_path, "--project", project_path, "--segment", str(segment), "--format", format]
-                subprocess.run(cmd, check=True)
-                proj_name = os.path.basename(project_path)
-                zip_filename = f"export_{proj_name}_seg{segment}.zip"
-                file_path = os.path.join(project_path, zip_filename)
-                if os.path.exists(file_path):
-                    return FileResponse(file_path, filename=zip_filename, media_type='application/zip')
-                else:
-                    return {"error": f"File generation failed. Expected: {file_path}"}
-            except Exception as e:
-                return {"error": str(e)}
-        
-        @fastapi_app.get("/apply_audio_api")
-        def apply_audio_api(video_path: str):
-            temp_out = None
-            try:
-                decoded_path = urllib.parse.unquote(video_path or "").strip().strip('"')
-                normalized_video_path = os.path.abspath(decoded_path)
-
-                # Security: Validate path is within VIRALS directory
-                abs_virals = os.path.abspath(VIRALS_DIR)
-                if not normalized_video_path.startswith(abs_virals):
-                    return {"error": "Access denied: path outside project directory.", "success": False}
-
-                if not os.path.exists(normalized_video_path):
-                    return {"error": f"Video not found: {normalized_video_path}", "success": False}
-                
-                audio_config_path = os.path.join(WORKING_DIR, "audio_config.json")
-                if not os.path.exists(audio_config_path):
-                    return {"error": "Audio config not found. Configure it in the 'Áudio' tab first.", "success": False}
-                    
-                with open(audio_config_path, "r", encoding="utf-8") as f:
-                    cfg = json.load(f)
-                
-                audio_file = cfg.get("audio_file_path")
-                if audio_file and not os.path.exists(audio_file):
-                    rel_audio = os.path.abspath(audio_file)
-                    if os.path.exists(rel_audio):
-                        audio_file = rel_audio
-
-                bgm_enabled = bool(cfg.get("enabled", False))
-                has_valid_bgm = bgm_enabled and bool(audio_file and os.path.exists(audio_file))
-
-                try:
-                    source_video_volume = float(cfg.get("source_video_volume", 200.0))
-                except (TypeError, ValueError):
-                    source_video_volume = 200.0
-
-                has_source_volume_adjustment = abs(source_video_volume - 100.0) > 0.001
-                if not has_valid_bgm and not has_source_volume_adjustment:
-                    return {
-                        "error": i18n("No valid BGM file configured and source video volume is at 100%. Nothing to apply."),
-                        "success": False
-                    }
-                    
-                # Process in place using temp file
-                import tempfile
-                from scripts.apply_audio import apply_audio_to_video
-                fd, temp_out = tempfile.mkstemp(suffix=".mp4")
-                os.close(fd)
-                
-                success = apply_audio_to_video(normalized_video_path, audio_file if has_valid_bgm else None, cfg, temp_out)
-                if success and os.path.exists(temp_out):
-                    shutil.move(temp_out, normalized_video_path)
-                    return {"success": True, "message": "Audio applied successfully!"}
-
-                return {"error": "Failed to apply audio.", "success": False}
-            except Exception as e:
-                return {"error": str(e), "success": False}
-            finally:
-                if temp_out and os.path.exists(temp_out):
-                    try:
-                        os.remove(temp_out)
-                    except Exception:
-                        pass
-
         def _load_gemini_config():
             """Read Gemini api_key and model from api_config.json."""
             cfg_path = os.path.join(WORKING_DIR, "api_config.json")
@@ -1948,6 +1959,28 @@ if __name__ == "__main__":
                 if result.returncode != 0:
                     return {"success": False, "error": f"ffmpeg re-cut failed: {result.stderr or result.stdout}"}
 
+                # 2b. Re-cropar ESTE segmento para o 9:16 vertical em final/ usando os
+                # novos pontos de corte. Sem isso, render_specific_video acharia o crop
+                # ANTIGO em final/ e o vídeo renderizado não mudaria de verdade.
+                try:
+                    from scripts import edit_video
+                    final_folder = os.path.join(project_path, "final")
+                    os.makedirs(final_folder, exist_ok=True)
+                    temp_no_audio = os.path.join(final_folder, f"temp_video_no_audio_{segment}.mp4")
+                    edit_video.generate_short_fallback(
+                        output_video, temp_no_audio, segment, project_path, final_folder, no_face_mode="zoom"
+                    )
+                    generated_final = os.path.join(final_folder, f"final-output{segment:03d}_processed.mp4")
+                    final_target = os.path.join(final_folder, f"{base_name}.mp4")
+                    if os.path.exists(generated_final):
+                        if os.path.exists(final_target):
+                            os.remove(final_target)
+                        os.rename(generated_final, final_target)
+                    else:
+                        print(f"[BUFFER] Re-crop não gerou {generated_final}; render pode usar fonte antiga.")
+                except Exception as crop_err:
+                    print(f"[BUFFER] Re-crop falhou (non-fatal): {crop_err}")
+
                 # 3. Re-cut subtitle JSON
                 input_json_path = os.path.join(project_path, "input.json")
                 subs_folder = os.path.join(project_path, "subs")
@@ -1976,6 +2009,48 @@ if __name__ == "__main__":
                     "new_duration": round(new_duration, 3)
                 }
 
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return {"success": False, "error": str(e)}
+
+        @fastapi_app.get("/apply_feature_api")
+        def apply_feature_api(project: str, segment: int, feature: str):
+            """Aplica um recurso desativável (watermark/outro/audio_bgm/outro_music) a UM
+            corte, re-renderizando do zero a partir da fonte limpa (reaplica o recurso +
+            tudo que estiver ativado, sem empilhar). Reusa render_specific_video, que também
+            atualiza o render_state.json do corte (cinza = já aplicado)."""
+            try:
+                valid = {"watermark", "outro", "audio_bgm", "outro_music"}
+                if feature not in valid:
+                    return {"success": False, "error": f"Recurso inválido: {feature}"}
+
+                safe_project = os.path.basename(project)
+                project_path = os.path.join(VIRALS_DIR, safe_project)
+                if not os.path.exists(project_path):
+                    return {"success": False, "error": f"Projeto não encontrado: {safe_project}"}
+
+                # O recurso precisa estar ativado e configurado (ex.: marca d'água com imagem).
+                try:
+                    import render_state
+                except ImportError:
+                    from webui import render_state
+                ok, reason = render_state.feature_enabled_and_configured(WORKING_DIR, feature)
+                if not ok:
+                    return {"success": False, "error": reason}
+
+                # Localizar o JSON de legenda deste segmento.
+                from scripts.polish_segment_subs import find_segment_json
+                json_path = find_segment_json(project_path, segment)
+                if not json_path:
+                    return {"success": False, "error": f"Sem JSON de legenda para o segmento {segment}."}
+
+                # Re-render do zero (aplica o recurso + tudo ativado e grava o estado).
+                from subtitle_editor import render_specific_video
+                msg = render_specific_video(json_path)
+                if isinstance(msg, str) and msg.strip().lower().startswith("success"):
+                    return {"success": True, "message": msg}
+                return {"success": False, "error": msg or "Falha ao renderizar."}
             except Exception as e:
                 import traceback
                 traceback.print_exc()
@@ -2019,7 +2094,7 @@ if __name__ == "__main__":
         # Polish Subs, Adjust Buffer, Export XML) returns 404 and the
         # gallery hangs when the user switches to that tab.
         attach_extra_routes(app)
-        print(f"✅ All API routes mounted (apply_audio, polish_segment, adjust_buffer, export_xml).")
+        print(f"✅ All API routes mounted (apply_feature, polish_segment, adjust_buffer).")
         if share_url:
             print(f"🌐 Public URL: {share_url}")
 

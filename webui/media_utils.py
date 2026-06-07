@@ -94,6 +94,43 @@ def persist_uploaded_file(file_obj, category):
     return os.path.abspath(target_path)
 
 
+def delete_asset_file(path):
+    """Apaga um arquivo de asset SOMENTE se ele estiver dentro de WEBUI_ASSETS.
+
+    Usado quando o usuário envia um arquivo novo (marca d'água/encerramento/áudio):
+    o novo vira o padrão e o antigo é removido, evitando acúmulo. A trava de
+    diretório impede apagar qualquer coisa fora de WEBUI_ASSETS por engano.
+    """
+    if not path:
+        return False
+    try:
+        abs_path = os.path.abspath(path)
+        assets_abs = os.path.abspath(ASSETS_ROOT)
+        if not abs_path.startswith(assets_abs + os.sep):
+            return False
+        if os.path.isfile(abs_path):
+            os.remove(abs_path)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def persist_replacing(file_obj, category, previous_path):
+    """Persiste um upload e, se for um arquivo NOVO (diferente do anterior),
+    apaga o anterior. Retorna (novo_caminho_ou_None, apagou_antigo).
+
+    novo_caminho é None quando não houve upload (o chamador mantém o anterior).
+    """
+    persisted = persist_uploaded_file(file_obj, category)
+    if not persisted:
+        return None, False
+    deleted = False
+    if previous_path and os.path.abspath(persisted) != os.path.abspath(previous_path):
+        deleted = delete_asset_file(previous_path)
+    return os.path.abspath(persisted), deleted
+
+
 def as_posix_abs(path_value):
     return os.path.abspath(path_value).replace("\\", "/")
 

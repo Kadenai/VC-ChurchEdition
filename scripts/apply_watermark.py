@@ -18,12 +18,33 @@ except ImportError:
             pass
         return ("libx264", "ultrafast")
 
+HW_ENCODERS = ("h264_nvenc", "h264_amf", "h264_qsv", "h264_videotoolbox")
+
+
+def _cmd_uses_hw_encoder(cmd):
+    for i, tok in enumerate(cmd):
+        if tok == "-c:v" and i + 1 < len(cmd) and cmd[i + 1] in HW_ENCODERS:
+            return True
+    return False
+
+
+def _swap_to_cpu_encoder(cmd):
+    """Return a copy of cmd with any hardware H.264 encoder replaced by libx264/ultrafast."""
+    new_cmd = list(cmd)
+    for i, tok in enumerate(new_cmd):
+        if tok == "-c:v" and i + 1 < len(new_cmd) and new_cmd[i + 1] in HW_ENCODERS:
+            new_cmd[i + 1] = "libx264"
+            if i + 2 < len(new_cmd) and new_cmd[i + 2] == "-preset" and i + 3 < len(new_cmd):
+                new_cmd[i + 3] = "ultrafast"
+    return new_cmd
+
+
 def apply_watermark_to_video(input_video, image_path, x, y, scale, opacity, output_video):
     encoder, preset = get_best_encoder()
-    
+
     # We apply the overlay and keep audio intact.
     filter_complex = f"[1:v]scale=iw*({scale}/100):ih*({scale}/100),format=rgba,colorchannelmixer=aa={opacity}/100.0[wm];[0:v][wm]overlay={x}:{y}[v]"
-    
+
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", input_video,
@@ -31,13 +52,20 @@ def apply_watermark_to_video(input_video, image_path, x, y, scale, opacity, outp
         "-filter_complex", filter_complex,
         "-map", "[v]",
         "-map", "0:a?",
-        "-c:v", encoder, "-preset", preset, "-b:v", "5M", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        "-c:v", encoder, "-preset", preset, "-b:v", "5M",
         "-c:a", "copy",
         output_video
     ]
-    
+
     result = subprocess.run(cmd, check=False, capture_output=True, text=True)
     if result.returncode != 0:
+        # Retry on CPU if the hardware encoder failed (busy GPU / session limit)
+        # so the watermark is not silently skipped on some videos.
+        if _cmd_uses_hw_encoder(cmd):
+            print(f"Watermark hardware encoder failed for {input_video}, retrying with CPU (libx264)...")
+            result = subprocess.run(_swap_to_cpu_encoder(cmd), check=False, capture_output=True, text=True)
+            if result.returncode == 0:
+                return True
         error_text = (result.stderr or result.stdout or "Unknown ffmpeg error").strip()
         print(f"Error applying watermark to {input_video}: {error_text}")
         return False

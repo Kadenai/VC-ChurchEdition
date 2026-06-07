@@ -4,9 +4,9 @@ import cv2
 import numpy as np
 
 try:
-    from media_utils import extract_file_path, persist_uploaded_file, resolve_existing_path
+    from media_utils import extract_file_path, persist_replacing, resolve_existing_path
 except ImportError:
-    from webui.media_utils import extract_file_path, persist_uploaded_file, resolve_existing_path
+    from webui.media_utils import extract_file_path, persist_replacing, resolve_existing_path
 
 CONFIG_FILE = "watermark_config.json"
 
@@ -34,11 +34,13 @@ def load_watermark_config():
 
 def save_watermark_config(enabled, watermark_image_path, position_x, position_y, scale, opacity):
     existing_cfg = load_watermark_config()
-    persisted_path = persist_uploaded_file(watermark_image_path, "watermark")
+    old_path = existing_cfg.get("watermark_image_path")
+    # Arquivo novo vira o padrão e o antigo é apagado (sem acúmulo).
+    persisted_path, _ = persist_replacing(watermark_image_path, "watermark", old_path)
     if not persisted_path:
         persisted_path = resolve_existing_path(extract_file_path(watermark_image_path))
     if not persisted_path:
-        persisted_path = existing_cfg.get("watermark_image_path")
+        persisted_path = old_path
 
     config = {
         "enabled": enabled,

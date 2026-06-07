@@ -25,7 +25,7 @@ def burn_video_file(video_path, subtitle_path, output_path):
             '-c:v', encoder,
             '-preset', preset,
             '-b:v', '5M',
-            '-pix_fmt', 'yuv420p', '-movflags', '+faststart',
+            '-pix_fmt', 'yuv420p',
             '-c:a', 'copy',
             output_path
         ] + additional_args

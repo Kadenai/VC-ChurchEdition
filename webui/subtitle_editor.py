@@ -325,11 +325,20 @@ def render_specific_video(json_full_path):
                          append_outro.process_all_videos(temp_proc_dir, outro_cfg, temp_proc_dir)
                          
                  # Audio Overlay
+                 # Aplica se a BGM estiver ativa, OU se o volume original ≠ 100%,
+                 # OU se a música de encerramento estiver ativa (espelha main_improved
+                 # e garante que "Volume Original" e "Música de Encerramento" sejam aplicados).
                  audio_cfg_path = os.path.join(root_dir, "audio_config.json")
                  if os.path.exists(audio_cfg_path):
                      with open(audio_cfg_path, "r", encoding="utf-8") as f:
                          audio_cfg = json.load(f)
-                     if audio_cfg.get("enabled", False):
+                     try:
+                         src_vol = float(audio_cfg.get("source_video_volume", 200.0))
+                     except (TypeError, ValueError):
+                         src_vol = 200.0
+                     om_enabled = bool(audio_cfg.get("outro_music", {}).get("enabled", False))
+                     should_apply_audio = bool(audio_cfg.get("enabled", False)) or abs(src_vol - 100.0) > 0.001 or om_enabled
+                     if should_apply_audio:
                          from scripts import apply_audio
                          apply_audio.process_all_videos(temp_proc_dir, audio_cfg, temp_proc_dir)
                  
@@ -342,6 +351,24 @@ def render_specific_video(json_full_path):
                  
              except Exception as pp_err:
                  print(f"Error in post-processing during subtitle manual render: {pp_err}")
+
+             # Registrar quais efeitos ficaram embutidos neste corte (base dos
+             # botões "Aplicar X" da Biblioteca). Como o render reconstrói o corte
+             # do zero com o conjunto atual de configs ativadas, o estado reflete
+             # exatamente o que está embutido.
+             try:
+                 try:
+                     import render_state
+                 except ImportError:
+                     from webui import render_state
+                 idx_match = re.search(r"^(\d+)_", base_name) or re.search(r"output(\d+)", base_name)
+                 if idx_match:
+                     seg_index = int(idx_match.group(1))
+                     render_state.set_segment_features(
+                         project_folder, seg_index, render_state.compute_enabled_features(root_dir)
+                     )
+             except Exception as st_err:
+                 print(f"[render_state] não foi possível registrar estado: {st_err}")
 
              # Exportation to Desktop (Cortes IPB)
              desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")

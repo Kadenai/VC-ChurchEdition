@@ -4,9 +4,9 @@ import cv2
 import numpy as np
 
 try:
-    from media_utils import extract_file_path, persist_uploaded_file, resolve_existing_path
+    from media_utils import extract_file_path, persist_replacing, resolve_existing_path
 except ImportError:
-    from webui.media_utils import extract_file_path, persist_uploaded_file, resolve_existing_path
+    from webui.media_utils import extract_file_path, persist_replacing, resolve_existing_path
 
 CONFIG_FILE = "outro_config.json"
 
@@ -19,7 +19,8 @@ def load_outro_config():
         "position_y": 886,
         "scale": 42,
         "fade_duration": 1,
-        "rounded_corners": 10
+        "rounded_corners": 10,
+        "outro_volume": 100
     }
 
     if os.path.exists(CONFIG_FILE):
@@ -35,20 +36,23 @@ def load_outro_config():
     defaults["overlay_image_path"] = resolve_existing_path(defaults.get("overlay_image_path"))
     return defaults
 
-def save_outro_config(enabled, outro_video_path, overlay_image_path, position_x, position_y, scale, fade_duration, rounded_corners):
+def save_outro_config(enabled, outro_video_path, overlay_image_path, position_x, position_y, scale, fade_duration, rounded_corners, outro_volume=100):
     existing_cfg = load_outro_config()
+    old_video = existing_cfg.get("outro_video_path")
+    old_overlay = existing_cfg.get("overlay_image_path")
 
-    persisted_outro = persist_uploaded_file(outro_video_path, "outro")
+    # Vídeo e imagem novos viram o padrão e os antigos (daquele slot) são apagados.
+    persisted_outro, _ = persist_replacing(outro_video_path, "outro", old_video)
     if not persisted_outro:
         persisted_outro = resolve_existing_path(extract_file_path(outro_video_path))
     if not persisted_outro:
-        persisted_outro = existing_cfg.get("outro_video_path")
+        persisted_outro = old_video
 
-    persisted_overlay = persist_uploaded_file(overlay_image_path, "outro")
+    persisted_overlay, _ = persist_replacing(overlay_image_path, "outro", old_overlay)
     if not persisted_overlay:
         persisted_overlay = resolve_existing_path(extract_file_path(overlay_image_path))
     if not persisted_overlay:
-        persisted_overlay = existing_cfg.get("overlay_image_path")
+        persisted_overlay = old_overlay
 
     config = {
         "enabled": enabled,
@@ -58,7 +62,8 @@ def save_outro_config(enabled, outro_video_path, overlay_image_path, position_x,
         "position_y": position_y,
         "scale": scale,
         "fade_duration": fade_duration,
-        "rounded_corners": rounded_corners
+        "rounded_corners": rounded_corners,
+        "outro_volume": outro_volume
     }
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:

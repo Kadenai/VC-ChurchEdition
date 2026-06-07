@@ -24,7 +24,6 @@ from scripts import (
     burn_subtitles,
     save_json,
     organize_output,
-    translate_json,
 )
 from i18n.i18n import I18nAuto
 
@@ -100,6 +99,63 @@ def interactive_input_int(prompt_text):
         except ValueError:
             print(i18n("\nError: The value you entered is not an integer. Please try again."))
 
+def _load_viral_segments_file(path):
+    """Carrega viral_segments.txt de forma tolerante.
+
+    O arquivo pode conter um JSON limpo (gerado pelo pipeline) OU um JSON colado
+    por uma IA externa no Modo Manual (curadoria), que costuma vir com cercas
+    markdown (```json ... ```), texto explicativo antes/depois, ou até truncado.
+    Em vez de um json.load() cru (que quebra nesses casos), tentamos:
+      1) json.loads estrito (preserva exatamente arquivos já válidos);
+      2) clean_json_response (mesmo parser robusto usado para respostas da IA);
+      3) array "pelado" entre cercas markdown.
+    Retorna um dict {"segments": [...]} com a lista preenchida, ou None.
+    """
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            raw = f.read()
+    except OSError as e:
+        print(i18n("Error loading JSON: {}.").format(e))
+        return None
+
+    if not raw or not raw.strip():
+        return None
+
+    # 1) Caminho feliz: JSON já válido
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict) and isinstance(data.get("segments"), list):
+            return data
+        if isinstance(data, list):
+            return {"segments": data}
+    except (ValueError, TypeError):
+        pass
+
+    # 2) Parser tolerante (cercas ```json, texto extra, JSON truncado)
+    try:
+        data = create_viral_segments.clean_json_response(raw)
+        if isinstance(data, dict) and data.get("segments"):
+            return data
+    except Exception:
+        pass
+
+    # 3) Array "pelado" possivelmente entre cercas markdown simples
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text[:4].lower() == "json":
+            text = text[4:]
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return {"segments": parsed}
+            if isinstance(parsed, dict) and isinstance(parsed.get("segments"), list):
+                return parsed
+        except (ValueError, TypeError):
+            pass
+
+    return None
+
 def main():
     # Configuração de Argumentos via Linha de Comando (CLI)
     parser = argparse.ArgumentParser(description="ViralCutter CLI")
@@ -110,43 +166,26 @@ def main():
     parser.add_argument("--burn-only", action="store_true", help="Skip processing and only burn subtitles")
     parser.add_argument("--min-duration", type=int, default=60, help="Minimum segment duration (seconds)")
     parser.add_argument("--max-duration", type=int, default=120, help="Maximum segment duration (seconds)")
+    parser.add_argument("--ai-duration", action="store_true", help="A IA decide a duração: sem mínimo; --max-duration vira teto de segurança")
     parser.add_argument("--model", default="large-v3-turbo", help="Whisper model to use")
     parser.add_argument("--language", default="pt", help="Default transcription language code (e.g. 'pt', 'en')")
     
-    parser.add_argument("--ai-backend", choices=["manual", "gemini", "g4f", "local"], help="AI backend for viral analysis")
-    parser.add_argument("--api-key", help="Gemini API Key (required if ai-backend is gemini)")
-    
+    parser.add_argument("--api-key", help="Gemini API Key")
+
     parser.add_argument("--chunk-size", help="Override Chunk Size")
     parser.add_argument("--ai-model-name", help="Override AI Model Name")
 
     parser.add_argument("--project-path", help="Path to existing project folder (overrides URL/Latest)")
     parser.add_argument("--workflow", choices=["1", "2", "3"], default="1", help="Workflow choice: 1=Full, 2=Cut Only, 3=Subtitles Only")
-    parser.add_argument("--face-model", choices=["static_center", "insightface", "mediapipe"], default="static_center", help="Face detection model")
-    parser.add_argument("--face-mode", choices=["auto", "1", "2"], default="auto", help="Face tracking mode: auto, 1, 2")
     parser.add_argument("--subtitle-config", help="Path to subtitle configuration JSON file")
     parser.add_argument("--outro-config", help="Path to outro configuration JSON file")
     parser.add_argument("--watermark-config", help="Path to watermark configuration JSON file")
     parser.add_argument("--audio-config", help="Path to audio configuration JSON file")
-    parser.add_argument("--no-face-mode", choices=["padding", "zoom"], default="zoom", help="Method to handle segments with no face detected: 'padding' (9:16 frame with black bars) or 'zoom' (Center Crop Zoom)")
-    parser.add_argument("--face-detect-interval", type=str, default="0.17,1.0", help="Face detection interval in seconds. Single value or 'interval_1face,interval_2face'")
-    parser.add_argument("--face-filter-threshold", type=float, default=0.35, help="Relative area threshold to ignore background faces (default: 0.35)")
-    parser.add_argument("--face-two-threshold", type=float, default=0.60, help="Relative area threshold to trigger 2-face mode (default: 0.60)")
-    parser.add_argument("--face-confidence-threshold", type=float, default=0.40, help="Face detection confidence threshold (0.0 - 1.0) (default: 0.40)")
-    parser.add_argument("--face-dead-zone", type=str, default="150", help="Camera movement dead zone in pixels (default: 150)") # str to support future "auto"
-    parser.add_argument("--focus-active-speaker", action="store_true", help="Enable experimental active speaker focus (InsightFace only)")
-    parser.add_argument("--active-speaker-mar", type=float, default=0.03, help="Mouth Aspect Ratio threshold for active speaker (0.0 - 1.0) (default: 0.03)")
-    parser.add_argument("--active-speaker-score-diff", type=float, default=1.5, help="Score difference to focus on active speaker (default: 1.5)")
-    parser.add_argument("--include-motion", action="store_true", help="Include motion (body/head movement) in activity score")
-    parser.add_argument("--active-speaker-motion-threshold", type=float, default=3.0, help="Motion deadzone in pixels (default: 3.0)")
-    parser.add_argument("--active-speaker-motion-sensitivity", type=float, default=0.05, help="Motion sensitivity multiplier (default: 0.05)")
-    parser.add_argument("--active-speaker-decay", type=float, default=2.0, help="Activity score decay rate (default: 2.0)")
     parser.add_argument("--skip-prompts", action="store_true", help="Skip interactive prompts and use defaults/existing files")
     parser.add_argument("--video-quality", choices=["best", "1080p", "720p", "480p"], default="best", help="Video download quality")
     parser.add_argument("--skip-youtube-subs", dest="skip_youtube_subs", action="store_true", default=True, help="Skip downloading YouTube subtitles")
     parser.add_argument("--use-youtube-subs", dest="skip_youtube_subs", action="store_false", help="Download and use YouTube subtitles if available")
-    parser.add_argument("--translate-target", default="None", help="Target language code for subtitle translation (e.g. 'pt', 'en').")
     parser.add_argument("--manual-webui", action="store_true", help="Pause pipeline after generating prompts for manual UI intervention.")
-    parser.add_argument("--polish-subs", action="store_true", default=False, help="Polish/correct subtitle text using AI before processing (Estratégia A)")
 
     args = parser.parse_args()
     
@@ -238,24 +277,21 @@ def main():
                  use_existing_json = input(i18n("Use existing viral segments? (yes/no) [default: yes]: ")).strip().lower()
              
              if use_existing_json in ['', 'y', 'yes']:
-                try:
-                    with open(viral_segments_file, 'r', encoding='utf-8') as f:
-                        viral_segments = json.load(f)
+                viral_segments = _load_viral_segments_file(viral_segments_file)
+                if viral_segments and viral_segments.get("segments"):
                     print(i18n("Loaded existing viral segments. Skipping configuration prompts."))
-                    if viral_segments and "segments" in viral_segments:
-                        print(f"DEBUG: Loaded {len(viral_segments['segments'])} segments from file.")
-                    else:
-                        print("DEBUG: Loaded JSON but 'segments' key is missing or empty.")
-                except Exception as e:
-                    print(i18n("Error loading JSON: {}.").format(e))
+                    print(f"DEBUG: Loaded {len(viral_segments['segments'])} segments from file.")
+                else:
+                    viral_segments = None
+                    print("DEBUG: Não foi possível extrair uma lista 'segments' válida do JSON.")
 
     # Variaveis de config de IA (só necessárias se não tivermos os segmentos)
     num_segments = None
     viral_mode = False
     themes = ""
-    ai_backend = "manual" # default
+    ai_backend = "gemini"  # Only Gemini is supported
     api_key = None
-    
+
     if not viral_segments:
         num_segments = args.segments
         if not num_segments:
@@ -303,113 +339,26 @@ def main():
             except (json.JSONDecodeError, OSError) as e:
                 print(i18n("Warning: could not read api_config.json: {}").format(e))
 
-        # Seleção do Backend de IA
-        ai_backend = args.ai_backend
-        
-        # Try to load backend from config if not in args
-        if not ai_backend and api_config.get("selected_api"):
-            ai_backend = api_config.get("selected_api")
-            print(i18n("Using AI Backend from config: {}").format(ai_backend))
-
-        if not ai_backend:
-            if args.skip_prompts:
-                print(i18n("No AI backend selected, defaulting to Manual."))
-                ai_backend = "manual"
-            else:
-                print("\n" + i18n("Select AI Backend for Viral Analysis:"))
-                print(i18n("1. Gemini API (Best / Recommended)"))
-                print(i18n("2. G4F (Free / Experimental)"))
-                print(i18n("3. Local (GGUF via llama.cpp)"))
-                print(i18n("4. Manual (Copy/Paste Prompt)"))
-                choice = input(i18n("Choose (1-4): ")).strip()
-                
-                if choice == "1":
-                    ai_backend = "gemini"
-                elif choice == "2":
-                    ai_backend = "g4f"
-                elif choice == "3":
-                    ai_backend = "local"
-                    # Interactive model selection for local
-                    # List models
-                    models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
-                    if not os.path.exists(models_dir): os.makedirs(models_dir)
-                    models = [f for f in os.listdir(models_dir) if f.endswith(".gguf")]
-                    
-                    if not models:
-                        print(i18n("\nNo .gguf models found in 'models' directory."))
-                        print(i18n("Please place a module file in: {}").format(models_dir))
-                        print(i18n("Falling back to Manual..."))
-                        ai_backend = "manual"
-                    else:
-                        print(i18n("\nAvailable Models:"))
-                        for idx, m in enumerate(models):
-                            print(f"{idx+1}. {m}")
-                        
-                        try:
-                            m_idx = int(input(i18n("Select Model (Number): "))) - 1
-                            if 0 <= m_idx < len(models):
-                                args.ai_model_name = models[m_idx] # Set global arg
-                            else:
-                                print(i18n("Invalid selection. Using first model."))
-                                args.ai_model_name = models[0]
-                        except (TypeError, ValueError):
-                             print(i18n("Invalid input. Using first model."))
-                             args.ai_model_name = models[0]
-                             
-                else:
-                    ai_backend = "manual"
+        # AI Backend: only Gemini is supported.
+        ai_backend = "gemini"
 
         api_key = args.api_key
-        # Check config for API Key if using Gemini
-        if ai_backend == "gemini" and not api_key:
+        # Check config for API Key if not provided
+        if not api_key:
             cfg_key = api_config.get("gemini", {}).get("api_key", "")
             if cfg_key and cfg_key != "SUA_KEY_AQUI":
                 api_key = cfg_key
-        
-        if ai_backend == "gemini" and not api_key:
+
+        if not api_key:
              if args.skip_prompts:
                  print(i18n("Gemini API key missing, but skip-prompts is ON. Might fail."))
              else:
                  print(i18n("Gemini API Key not found in api_config.json or arguments."))
                  api_key = input(i18n("Enter your Gemini API Key: ")).strip()
 
-    # Workflow & Face Config Inputs (preserve overrides from burn_only_mode)
+    # Workflow (preserve overrides from burn_only_mode)
     if workflow_choice != "3":  # Don't overwrite if already set by burn_only_mode
         workflow_choice = args.workflow
-    face_model = args.face_model
-    face_mode = args.face_mode
-
-    # If args weren't provided and we are not skipping prompts, ask user
-    # Note: argparse defaults are set, so they "are provided" effectively.
-    # To truly detect "not provided", request default=None in argparse. 
-    # But for "Simplified Mode", defaults are good.
-    # Advanced users use params.
-    # We will assume CLI defaults are what we want if skip_prompts is on.
-    
-    # Logic for detection intervals (Moved out of interactive block to support CLI/WebUI)
-    detection_intervals = None
-    if args.face_detect_interval:
-        try:
-            parts = args.face_detect_interval.split(',')
-            if len(parts) == 1:
-                val = float(parts[0])
-                detection_intervals = {'1': val, '2': val}
-            elif len(parts) >= 2:
-                val1 = float(parts[0])
-                val2 = float(parts[1])
-                detection_intervals = {'1': val1, '2': val2}
-        except ValueError:
-            pass
-
-    if not args.burn_only and not args.skip_prompts:
-        # Interactive Face Config
-        print(i18n("\n--- Face Detection Settings ---"))
-        print(i18n("Current Face Model: {} | Mode: {}").format(face_model, face_mode))
-        
-        if detection_intervals:
-             print(i18n("Custom detection intervals: {}").format(detection_intervals))
-        else:
-             print(i18n("Using dynamic intervals: 1s for 2-face, ~0.16s for 1-face."))
 
 
     # Pipeline Execution
@@ -452,21 +401,6 @@ def main():
             # Se skip config, args.model é default
             srt_file, tsv_file = transcribe_video.transcribe(input_video, args.model, project_folder=project_folder, language=args.language)
 
-        # 2.5. Polish Transcription (optional — enabled via --polish-subs)
-        if getattr(args, 'polish_subs', False) and workflow_choice != "3":
-            print(i18n("Polishing subtitle text with AI..."))
-            from scripts import polish_transcription
-            polish_success = polish_transcription.polish(
-                project_folder=project_folder,
-                api_key=api_key,
-                model_name=args.ai_model_name,
-                ai_mode=ai_backend
-            )
-            if polish_success:
-                print(i18n("Subtitle polishing completed successfully."))
-            else:
-                print(i18n("Warning: Subtitle polishing failed or was skipped. Continuing with original transcription."))
-
         # 3. Create Viral Segments
         if workflow_choice != "3":
             # Se não carregamos 'viral_segments' lá em cima (ou se era download novo), checamos agora ou criamos
@@ -477,18 +411,14 @@ def main():
                     print(i18n("Found existing viral segments file at {}").format(viral_segments_file_late))
                     if args.skip_prompts:
                         print(i18n("Skipping prompts enabled. Loading existing segments."))
-                        try:
-                            with open(viral_segments_file_late, 'r', encoding='utf-8') as f:
-                                viral_segments = json.load(f)
-                        except Exception as e:
-                            print(i18n("Error loading existing JSON: {}. Proceeding to create new segments.").format(e))
                     else:
                         print(i18n("Loading existing viral segments found at {}").format(viral_segments_file_late))
-                        try:
-                            with open(viral_segments_file_late, 'r', encoding='utf-8') as f:
-                                viral_segments = json.load(f)
-                        except Exception as e:
-                            print(i18n("Error loading existing JSON: {}.").format(e))
+                    viral_segments = _load_viral_segments_file(viral_segments_file_late)
+                    if viral_segments and viral_segments.get("segments"):
+                        print(f"DEBUG: Loaded {len(viral_segments['segments'])} segments from file.")
+                    else:
+                        viral_segments = None
+                        print(i18n("Error loading existing JSON: {}. Proceeding to create new segments.").format("formato inválido / sem 'segments'"))
                     
                 if not viral_segments:
                     print(i18n("Creating viral segments using {}...").format("MANUAL_WEBUI" if args.manual_webui else ai_backend.upper()))
@@ -505,7 +435,8 @@ def main():
                         api_key=api_key,
                         project_folder=project_folder,
                         chunk_size_arg=args.chunk_size,
-                        model_name_arg=args.ai_model_name
+                        model_name_arg=args.ai_model_name,
+                        ai_duration=args.ai_duration
                     )
 
                 if viral_segments and viral_segments.get("paused_for_manual"):
@@ -536,11 +467,11 @@ def main():
                           # Process (Align)
                           # Use None for output_count to keep all found segments
                           viral_segments = create_viral_segments.process_segments(
-                              segs, 
-                              transcript, 
-                              args.min_duration, 
-                              args.max_duration, 
-                              output_count=None 
+                              segs,
+                              transcript,
+                              (0 if args.ai_duration else args.min_duration),
+                              args.max_duration,
+                              output_count=None
                           )
                           save_json.save_viral_segments(viral_segments, project_folder=project_folder)
                           print(i18n("Segments aligned and saved."))
@@ -582,34 +513,13 @@ def main():
             print(i18n("Process completed! Check your results in: {}").format(project_folder))
             sys.exit(0)
 
-        # 5. Edit Video (Face Crop)
+        # 5. Edit Video (Center 9:16 Crop)
         if workflow_choice != "3":
-            print(i18n("Editing video with {} (Mode: {})...").format(face_model, face_mode))
-            
-            # Parse dead zone safely
-            try:
-                dead_zone_val = float(args.face_dead_zone)
-            except (TypeError, ValueError):
-                dead_zone_val = 40.0
-                
+            print(i18n("Cropping videos to vertical 9:16 (centered)..."))
             edit_video.edit(
-                project_folder=project_folder, 
-                face_model=face_model, 
-                face_mode=face_mode, 
-                detection_period=detection_intervals,
-                filter_threshold=args.face_filter_threshold,
-                two_face_threshold=args.face_two_threshold,
-                confidence_threshold=args.face_confidence_threshold,
-                dead_zone=dead_zone_val,
-                focus_active_speaker=args.focus_active_speaker,
-                active_speaker_mar=args.active_speaker_mar,
-                active_speaker_score_diff=args.active_speaker_score_diff,
-                include_motion=args.include_motion,
-                active_speaker_motion_deadzone=args.active_speaker_motion_threshold,
-                active_speaker_motion_sensitivity=args.active_speaker_motion_sensitivity,
-                active_speaker_decay=args.active_speaker_decay,
+                project_folder=project_folder,
                 segments_data=viral_segments.get("segments", []) if viral_segments else None,
-                no_face_mode=args.no_face_mode
+                no_face_mode="zoom"
             )
 
 
@@ -644,14 +554,6 @@ def main():
                      if os.path.exists(old_json_path) and not os.path.exists(new_json_path):
                          os.rename(old_json_path, new_json_path)
                          print(f"Renamed (Workflow 3): {old_json_name} -> {new_base_name}_processed.json")
-                         
-                     # 3. Timeline
-                     old_tl_name = f"temp_video_no_audio_{idx}_timeline.json"
-                     old_tl_path = os.path.join(final_folder, old_tl_name)
-                     new_tl_path = os.path.join(final_folder, f"{new_base_name}_timeline.json")
-                     if os.path.exists(old_tl_path) and not os.path.exists(new_tl_path):
-                         os.rename(old_tl_path, new_tl_path)
-                         print(f"Renamed (Workflow 3): {old_tl_name} -> {new_base_name}_timeline.json")
 
         # 6. Subtitles
         burn_subtitles_option = True 
@@ -659,16 +561,6 @@ def main():
             print(i18n("Processing subtitles..."))
             # transcribe_cuts removido: JSON de legenda já é gerado no corte
             # transcribe_cuts.transcribe(project_folder=project_folder)
-            
-            # --- Translation Integration ---
-            if args.translate_target and args.translate_target.lower() != "none":
-                 print(i18n("Translating subtitles to: {}").format(args.translate_target))
-                 import asyncio
-                 try:
-                    asyncio.run(translate_json.translate_project_subs(project_folder, args.translate_target))
-                 except Exception as e:
-                    print(i18n("Translation failed: {}").format(e))
-            # -------------------------------
 
             sub_config = get_subtitle_config(args.subtitle_config)
             
@@ -688,6 +580,13 @@ def main():
         else:
             print(i18n("Subtitle burning skipped."))
 
+        # Flags do que foi efetivamente embutido nos cortes (base dos botões "Aplicar X").
+        applied_watermark = False
+        applied_outro = False
+        applied_audio_bgm = False
+        applied_outro_music = False
+        applied_source_volume = False
+
         # 6.5 Apply Watermark
         if args.watermark_config and os.path.exists(args.watermark_config):
             try:
@@ -704,6 +603,7 @@ def main():
                         watermark_config=watermark_cfg,
                         output_folder=wm_src_folder
                     )
+                    applied_watermark = True
             except Exception as e:
                 print(f"Error applying watermark: {e}")
 
@@ -725,6 +625,7 @@ def main():
                         outro_config=outro_cfg,
                         output_folder=outro_src_folder
                     )
+                    applied_outro = True
             except Exception as e:
                 print(f"Error applying outro: {e}")
 
@@ -738,7 +639,8 @@ def main():
                 except (TypeError, ValueError):
                     source_video_volume = 200.0
 
-                should_apply_audio = audio_cfg.get("enabled", False) or abs(source_video_volume - 100.0) > 0.001
+                outro_music_enabled = bool(audio_cfg.get("outro_music", {}).get("enabled", False))
+                should_apply_audio = audio_cfg.get("enabled", False) or abs(source_video_volume - 100.0) > 0.001 or outro_music_enabled
                 if should_apply_audio:
                     from scripts import apply_audio
                     if burn_subtitles_option and os.path.exists(os.path.join(project_folder, "burned_sub")):
@@ -750,8 +652,32 @@ def main():
                         audio_config=audio_cfg,
                         output_folder=audio_src_folder
                     )
+                    applied_audio_bgm = bool(audio_cfg.get("enabled", False))
+                    applied_outro_music = outro_music_enabled and applied_outro
+                    applied_source_volume = abs(source_video_volume - 100.0) > 0.001
             except Exception as e:
                 print(f"Error applying audio overlay: {e}")
+
+        # --- Registrar efeitos embutidos por corte (base dos botões "Aplicar X" da Biblioteca) ---
+        try:
+            sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "webui"))
+            import render_state
+            seg_count = len(viral_segments.get("segments", [])) if (viral_segments and "segments" in viral_segments) else 0
+            if seg_count > 0:
+                render_state.set_all_segments(
+                    project_folder,
+                    range(seg_count),
+                    {
+                        "subtitles": burn_subtitles_option,
+                        "watermark": applied_watermark,
+                        "outro": applied_outro,
+                        "audio_bgm": applied_audio_bgm,
+                        "outro_music": applied_outro_music,
+                        "source_volume": applied_source_volume,
+                    },
+                )
+        except Exception as st_err:
+            print(f"[render_state] não foi possível registrar estado do pipeline: {st_err}")
 
         # Organização Final (Opcional, pois agora já está tudo em project_folder)
         # organize_output.organize(project_folder=project_folder)
@@ -760,20 +686,17 @@ def main():
         try:
             # Determine AI Model used
             used_ai_model = args.ai_model_name
-            if not used_ai_model and ai_backend != "manual":
-                if ai_backend == "gemini":
-                    used_ai_model = api_config.get("gemini", {}).get("model", "default")
-                elif ai_backend == "g4f":
-                    used_ai_model = api_config.get("g4f", {}).get("model", "default")
-            
+            if not used_ai_model:
+                used_ai_model = api_config.get("gemini", {}).get("model", "default")
+
             # Ensure sub_config exists
             current_sub_config = sub_config if 'sub_config' in locals() else get_subtitle_config(args.subtitle_config)
-            
+
             final_config = {
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "workflow": workflow_choice,
                 "ai_config": {
-                    "backend": ai_backend,
+                    "backend": "gemini",
                     "model_name": used_ai_model,
                     "viral_mode": viral_mode,
                     "themes": themes,
@@ -781,21 +704,12 @@ def main():
                     "chunk_size": args.chunk_size
                 },
                 "face_config": {
-                    "model": face_model,
-                    "mode": face_mode,
-                    "detect_interval": args.face_detect_interval,
-                    "filter_threshold": args.face_filter_threshold,
-                    "two_face_threshold": args.face_two_threshold,
-                    "confidence_threshold": args.face_confidence_threshold,
-                    "dead_zone": args.face_dead_zone,
-                    "focus_active_speaker": args.focus_active_speaker,
-                    "active_speaker_mar": args.active_speaker_mar,
-                    "active_speaker_score_diff": args.active_speaker_score_diff,
-                    "include_motion": args.include_motion
+                    "model": "static_center"
                 },
                 "video_config": {
                     "min_duration": args.min_duration,
                     "max_duration": args.max_duration,
+                    "ai_duration": args.ai_duration,
                     "whisper_model": args.model
                 },
                 "subtitle_config": current_sub_config

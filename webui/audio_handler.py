@@ -6,7 +6,7 @@ try:
         build_file_url,
         build_file_url_candidates,
         extract_file_path,
-        persist_uploaded_file,
+        persist_replacing,
         resolve_existing_path,
     )
 except ImportError:
@@ -14,7 +14,7 @@ except ImportError:
         build_file_url,
         build_file_url_candidates,
         extract_file_path,
-        persist_uploaded_file,
+        persist_replacing,
         resolve_existing_path,
     )
 
@@ -103,22 +103,24 @@ def save_audio_config(
     outro_music_fade_out=1,
 ):
     existing_cfg = load_audio_config()
-    persisted_audio_path = persist_uploaded_file(audio_file_path, "audio")
+    old_bgm = existing_cfg.get("audio_file_path")
+    # Áudio BGM novo vira padrão e o antigo é apagado.
+    persisted_audio_path, _ = persist_replacing(audio_file_path, "audio", old_bgm)
     if not persisted_audio_path:
         persisted_audio_path = resolve_existing_path(extract_file_path(audio_file_path))
     if not persisted_audio_path:
-        persisted_audio_path = existing_cfg.get("audio_file_path")
+        persisted_audio_path = old_bgm
 
     if source_video_volume is None:
         source_video_volume = existing_cfg.get("source_video_volume", 200.0)
 
-    # Persist outro music file
-    persisted_outro_music_path = persist_uploaded_file(outro_music_file, "audio")
+    # Música de encerramento nova vira padrão e a antiga é apagada.
+    old_outro_music = (existing_cfg.get("outro_music", {}) or {}).get("audio_file_path")
+    persisted_outro_music_path, _ = persist_replacing(outro_music_file, "audio", old_outro_music)
     if not persisted_outro_music_path:
         persisted_outro_music_path = resolve_existing_path(extract_file_path(outro_music_file))
     if not persisted_outro_music_path:
-        existing_outro = existing_cfg.get("outro_music", {})
-        persisted_outro_music_path = existing_outro.get("audio_file_path")
+        persisted_outro_music_path = old_outro_music
 
     config = {
         "enabled": enabled,
