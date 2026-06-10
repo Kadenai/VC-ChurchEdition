@@ -131,6 +131,22 @@ def persist_replacing(file_obj, category, previous_path):
     return os.path.abspath(persisted), deleted
 
 
+def to_project_relative(path_value):
+    """Converte um caminho dentro do projeto para relativo (com '/'), p/ que os
+    configs versionáveis funcionem em qualquer SO (Windows <-> Colab/Linux).
+    Caminhos fora do projeto são devolvidos como estão."""
+    if not path_value:
+        return path_value
+    try:
+        abs_path = os.path.abspath(str(path_value))
+        root = os.path.abspath(PROJECT_ROOT)
+        if abs_path == root or abs_path.startswith(root + os.sep):
+            return os.path.relpath(abs_path, root).replace("\\", "/")
+    except Exception:
+        pass
+    return path_value
+
+
 def as_posix_abs(path_value):
     return os.path.abspath(path_value).replace("\\", "/")
 

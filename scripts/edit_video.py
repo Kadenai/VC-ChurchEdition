@@ -125,6 +125,13 @@ def finalize_video(input_file, output_file, index, fps, project_folder, final_fo
     subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-threads", "12", "-i", input_file, "-vn", "-acodec", "copy", audio_file],
                    check=False, capture_output=True)
 
+    # Se o stream original não for AAC, o copy falha e o corte sumiria do
+    # pipeline sem o vídeo final — tenta de novo re-encodando.
+    if not (os.path.exists(audio_file) and os.path.getsize(audio_file) > 0):
+        print(f"Audio copy failed for {input_file}; retrying with AAC re-encode...")
+        subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-threads", "12", "-i", input_file, "-vn", "-c:a", "aac", "-b:a", "192k", audio_file],
+                       check=False, capture_output=True)
+
     if os.path.exists(audio_file) and os.path.getsize(audio_file) > 0:
         final_output = os.path.join(final_folder, f"final-output{str(index).zfill(3)}_processed.mp4")
         encoder_name, encoder_preset = get_best_encoder()

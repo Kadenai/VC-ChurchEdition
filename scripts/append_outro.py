@@ -7,6 +7,11 @@ import cv2
 import numpy as np
 
 try:
+    from scripts.asset_paths import resolve_asset_path
+except ImportError:
+    from asset_paths import resolve_asset_path
+
+try:
     from scripts.edit_video import get_best_encoder
 except ImportError:
     # Fallback if cannot import
@@ -245,15 +250,16 @@ def append_outro_to_video(main_video, composed_outro, fade_duration, output_path
 def process_all_videos(source_folder, outro_config, output_folder):
     """
     Applies the configured outro to all mp4 videos in the source_folder.
+    Returns the number of videos processed (0 when skipped/failed).
     """
-    outro_video = outro_config.get("outro_video_path")
-    if not outro_video or not os.path.exists(outro_video):
+    outro_video = resolve_asset_path(outro_config.get("outro_video_path"))
+    if not outro_video:
         print("Outro video path not configured or not found. Skipping outro.")
-        return
-    
+        return 0
+
     print(f"Applying Outro/Ending to all videos in {source_folder}...")
-    
-    image_path = outro_config.get("overlay_image_path")
+
+    image_path = resolve_asset_path(outro_config.get("overlay_image_path"))
     x = outro_config.get("position_x", 179)
     y = outro_config.get("position_y", 886)
     scale = outro_config.get("scale", 42)
@@ -272,7 +278,7 @@ def process_all_videos(source_folder, outro_config, output_folder):
     if not success:
         print("Failed to compose outro overlay. Aborting outro step.")
         shutil.rmtree(temp_dir)
-        return
+        return 0
 
     # 2. Iterate through videos
     processed_count = 0
@@ -300,5 +306,6 @@ def process_all_videos(source_folder, outro_config, output_folder):
         shutil.rmtree(temp_dir)
     except:
         pass
-    
+
     print(f"Outro/Ending process completed. Applied to {processed_count} videos.")
+    return processed_count

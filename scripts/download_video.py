@@ -11,7 +11,7 @@ def sanitize_filename(name):
     cleaned = re.sub(r'[\\/*?:"<>|]', "", name)
     
     # Remove emojis e caracteres não suportados pelo console Windows (CP1252)
-    # Isso mantém acentos (á, ç, é) mas remove 😱, etc.
+    # Isso mantém acentos (á, ç, é) mas remove caracteres de emoji e afins.
     try:
         cleaned = cleaned.encode('cp1252', 'ignore').decode('cp1252')
     except:
@@ -127,7 +127,7 @@ def download(url, base_root="VIRALS", download_subs=True, quality="best"):
         # Opções de Legenda
         'writesubtitles': download_subs,
         'writeautomaticsub': download_subs,
-        'subtitleslangs': ['pt.*', 'en.*', 'sp.*'], # Prioritize generic PT, EN, SP
+        'subtitleslangs': ['pt.*', 'en.*', 'es.*'], # Prioritize generic PT, EN, ES (espanhol é "es")
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         },
@@ -176,9 +176,16 @@ def download(url, base_root="VIRALS", download_subs=True, quality="best"):
             except Exception as e2:
                 print(i18n("Fatal error on second attempt: {}").format(e2))
                 raise
+        elif "Sign in to confirm" in error_str or "not a bot" in error_str:
+             print("\n[ERRO] O YouTube bloqueou o download pedindo verificação ('não sou um robô').")
+             print("Isso é comum em servidores como o Colab. Alternativas:")
+             print("  1) Baixe o vídeo no seu computador e use a opção 'Upar vídeo' na tela inicial;")
+             print("  2) Tente novamente mais tarde (o bloqueio costuma ser temporário);")
+             print("  3) Use um link de outra plataforma/espelho do mesmo vídeo.")
+             raise
         elif "is not a valid URL" in error_str:
              print(i18n("Error: the entered link is not valid."))
-             raise 
+             raise
         else:
             print(i18n("Download error: {}").format(e))
             raise
@@ -209,9 +216,13 @@ def download(url, base_root="VIRALS", download_subs=True, quality="best"):
                     
                     srt_content = []
                     counter = 1
-                    
+
                     seen_texts = set()
                     last_text = ""
+                    # Inicializados aqui: um VTT malformado pode trazer texto
+                    # antes do primeiro timestamp (evita NameError abaixo).
+                    current_start = None
+                    current_end = None
                     
                     for line in lines:
                         clean_line = line.strip()
@@ -240,6 +251,9 @@ def download(url, base_root="VIRALS", download_subs=True, quality="best"):
                             current_end = fix_time(end)
                             
                         elif clean_line:
+                             # Ignora texto que apareça antes do primeiro timestamp
+                             if current_start is None or current_end is None:
+                                 continue
                              # Texto: remover tags complexas <00:00:00.560><c> etc
                              # O YouTube usa formato karaoke. Ex: "Quanto<...> custa<...>"
                              # Precisamos do texto limpo.

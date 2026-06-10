@@ -4,9 +4,9 @@ import cv2
 import numpy as np
 
 try:
-    from media_utils import extract_file_path, persist_replacing, resolve_existing_path
+    from media_utils import extract_file_path, persist_replacing, resolve_existing_path, to_project_relative
 except ImportError:
-    from webui.media_utils import extract_file_path, persist_replacing, resolve_existing_path
+    from webui.media_utils import extract_file_path, persist_replacing, resolve_existing_path, to_project_relative
 
 CONFIG_FILE = "watermark_config.json"
 
@@ -44,7 +44,8 @@ def save_watermark_config(enabled, watermark_image_path, position_x, position_y,
 
     config = {
         "enabled": enabled,
-        "watermark_image_path": persisted_path,
+        # Relativo à raiz do projeto: funciona no Windows e no Colab
+        "watermark_image_path": to_project_relative(persisted_path),
         "position_x": position_x,
         "position_y": position_y,
         "scale": scale,
@@ -62,8 +63,9 @@ def generate_watermark_preview(image_path, x, y, scale, opacity):
     frame = np.full((1920, 1080, 3), 40, dtype=np.uint8)
     
     # Add some text to make it look like a video preview space
+    # cv2.putText só suporta ASCII — acento viraria "?" no preview
     cv2.putText(frame, "PREVIEW DO", (300, 900), cv2.FONT_HERSHEY_SIMPLEX, 2, (100, 100, 100), 5)
-    cv2.putText(frame, "VÍDEO AQUI", (300, 1000), cv2.FONT_HERSHEY_SIMPLEX, 2, (100, 100, 100), 5)
+    cv2.putText(frame, "VIDEO AQUI", (300, 1000), cv2.FONT_HERSHEY_SIMPLEX, 2, (100, 100, 100), 5)
     
     resolved_image_path = resolve_existing_path(extract_file_path(image_path))
     if resolved_image_path and os.path.exists(resolved_image_path):

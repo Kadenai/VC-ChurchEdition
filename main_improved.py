@@ -188,7 +188,18 @@ def main():
     parser.add_argument("--manual-webui", action="store_true", help="Pause pipeline after generating prompts for manual UI intervention.")
 
     args = parser.parse_args()
-    
+
+    # Load API Config (sempre, mesmo quando os segmentos já existem — é usado
+    # também no salvamento do process_config.json no final do pipeline).
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_config.json')
+    api_config = {}
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                api_config = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            print(i18n("Warning: could not read api_config.json: {}").format(e))
+
     # Workflow Logic
     workflow_choice = args.workflow
     
@@ -328,16 +339,6 @@ def main():
                      if max_d: args.max_duration = int(max_d)
                  except ValueError:
                      print(i18n("Invalid number. Using previous values."))
-
-        # Load API Config
-        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_config.json')
-        api_config = {}
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, 'r', encoding='utf-8') as f:
-                    api_config = json.load(f)
-            except (json.JSONDecodeError, OSError) as e:
-                print(i18n("Warning: could not read api_config.json: {}").format(e))
 
         # AI Backend: only Gemini is supported.
         ai_backend = "gemini"
@@ -598,12 +599,13 @@ def main():
                         wm_src_folder = os.path.join(project_folder, "burned_sub")
                     else:
                         wm_src_folder = os.path.join(project_folder, "final")
-                    apply_watermark.process_all_videos(
+                    wm_count = apply_watermark.process_all_videos(
                         source_folder=wm_src_folder,
                         watermark_config=watermark_cfg,
                         output_folder=wm_src_folder
                     )
-                    applied_watermark = True
+                    # Só marca como embutido se algum vídeo foi de fato processado
+                    applied_watermark = bool(wm_count)
             except Exception as e:
                 print(f"Error applying watermark: {e}")
 
@@ -620,12 +622,13 @@ def main():
                     else:
                         outro_src_folder = os.path.join(project_folder, "final")
                     
-                    append_outro.process_all_videos(
+                    outro_count = append_outro.process_all_videos(
                         source_folder=outro_src_folder,
                         outro_config=outro_cfg,
                         output_folder=outro_src_folder
                     )
-                    applied_outro = True
+                    # Só marca como embutido se algum vídeo foi de fato processado
+                    applied_outro = bool(outro_count)
             except Exception as e:
                 print(f"Error applying outro: {e}")
 
@@ -647,14 +650,16 @@ def main():
                         audio_src_folder = os.path.join(project_folder, "burned_sub")
                     else:
                         audio_src_folder = os.path.join(project_folder, "final")
-                    apply_audio.process_all_videos(
+                    audio_count = apply_audio.process_all_videos(
                         source_folder=audio_src_folder,
                         audio_config=audio_cfg,
                         output_folder=audio_src_folder
                     )
-                    applied_audio_bgm = bool(audio_cfg.get("enabled", False))
-                    applied_outro_music = outro_music_enabled and applied_outro
-                    applied_source_volume = abs(source_video_volume - 100.0) > 0.001
+                    # Só marca como embutido se algum vídeo foi de fato processado
+                    audio_ok = bool(audio_count)
+                    applied_audio_bgm = audio_ok and bool(audio_cfg.get("enabled", False))
+                    applied_outro_music = audio_ok and outro_music_enabled and applied_outro
+                    applied_source_volume = audio_ok and abs(source_video_volume - 100.0) > 0.001
             except Exception as e:
                 print(f"Error applying audio overlay: {e}")
 
@@ -725,10 +730,10 @@ def main():
         # -------------------------------------
 
         # -------------------------------------
-        # Exportação para Desktop (Cortes IPB)
+        # Exportação final (Cortes IPB): Desktop no Windows; pasta no Drive no Colab
         try:
-            desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-            cortes_ipb_dir = os.path.join(desktop_path, "Cortes IPB")
+            from scripts.export_paths import get_cortes_ipb_dir
+            cortes_ipb_dir = get_cortes_ipb_dir(os.path.dirname(os.path.abspath(__file__)))
             os.makedirs(cortes_ipb_dir, exist_ok=True)
             
             export_source = os.path.join(project_folder, "burned_sub")
@@ -744,9 +749,9 @@ def main():
                         shutil.copy2(os.path.join(export_source, f), os.path.join(cortes_ipb_dir, f))
                         exported_count += 1
                 if exported_count > 0:
-                    print(i18n("\n[SUCESSO] {} vídeos exportados para a Área de Trabalho em 'Cortes IPB'.").format(exported_count))
+                    print(f"\n[SUCESSO] {exported_count} vídeos exportados para 'Cortes IPB' em: {cortes_ipb_dir}")
         except Exception as e:
-            print(f"[AVISO] Não foi possível copiar para a Área de Trabalho: {e}")
+            print(f"[AVISO] Não foi possível copiar para 'Cortes IPB': {e}")
         # -------------------------------------
 
         print(i18n("Process completed! Check your results in: {}").format(project_folder))

@@ -60,7 +60,7 @@ def save_editor_changes(json_path, new_data):
     Smartly redistributes word timestamps if text content changed.
     """
     if not os.path.exists(json_path):
-        return "Error: Original file not found."
+        return "Erro: arquivo original não encontrado."
 
     try:
         with open(json_path, 'r', encoding='utf-8') as f:
@@ -160,10 +160,10 @@ def save_editor_changes(json_path, new_data):
         with open(json_path, 'w', encoding='utf-8') as f:
             json.dump(original_json, f, indent=4, ensure_ascii=False)
             
-        return "Success: Subtitles updated."
-        
+        return "OK: legendas atualizadas. Agora clique em renderizar para aplicar no vídeo."
+
     except Exception as e:
-        return f"Error saving changes: {e}"
+        return f"Erro ao salvar alterações: {e}"
 
 def list_editable_files(project_dir):
     """
@@ -370,9 +370,9 @@ def render_specific_video(json_full_path):
              except Exception as st_err:
                  print(f"[render_state] não foi possível registrar estado: {st_err}")
 
-             # Exportation to Desktop (Cortes IPB)
-             desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-             cortes_ipb_dir = os.path.join(desktop_path, "Cortes IPB")
+             # Exportação final (Cortes IPB): Desktop no Windows; Drive no Colab
+             from scripts.export_paths import get_cortes_ipb_dir
+             cortes_ipb_dir = get_cortes_ipb_dir()
              os.makedirs(cortes_ipb_dir, exist_ok=True)
              
              export_path = os.path.join(cortes_ipb_dir, os.path.basename(output_video_path))

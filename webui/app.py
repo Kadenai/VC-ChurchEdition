@@ -37,10 +37,20 @@ WEBUI_ASSETS_DIR = os.path.join(WORKING_DIR, "WEBUI_ASSETS")
 WEBUI_PREVIEW_DIR = os.path.join(WORKING_DIR, "webui", "PREVIEW")
 
 # Ensure directories exist
-if not os.path.exists(VIRALS_DIR):
-    os.makedirs(VIRALS_DIR, exist_ok=True)
-if not os.path.exists(MODELS_DIR):
-    os.makedirs(MODELS_DIR, exist_ok=True)
+def _ensure_dir(path):
+    # Symlink quebrado (ex.: VIRALS -> Drive desmontado no Colab) faria
+    # os.makedirs falhar com FileExistsError. Remove o link morto e recria local.
+    if os.path.islink(path) and not os.path.exists(path):
+        print(f"[AVISO] Link quebrado em {path} (Drive desmontado?). Recriando como pasta local — "
+              "rode a célula 1 do notebook para religar ao Google Drive.")
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+    os.makedirs(path, exist_ok=True)
+
+_ensure_dir(VIRALS_DIR)
+_ensure_dir(MODELS_DIR)
 
 ALLOWED_DIRS = [
     os.path.abspath(VIRALS_DIR),
@@ -118,11 +128,44 @@ GEMINI_MODELS = [
 # Subtitle logic moved to subtitle_handler.py
 
 
+def _tail_log(text, max_lines=600, max_chars=60000):
+    """Devolve só a cauda do log para enviar ao navegador.
+
+    Em jobs longos o stdout do whisperx/ffmpeg vira centenas de KB. Mandar o
+    buffer inteiro a cada yield faz o front re-renderizar um textarea gigante e
+    re-escanear o log a cada atualização. Com a janela fora de foco isso vira
+    uma fila enorme de re-renders que só "drena" quando o foco volta — e como o
+    último yield é o que carrega a galeria, os vídeos só apareciam depois dos
+    logs terminarem de rolar. Mandar só a cauda mantém cada atualização barata.
+    """
+    if not text:
+        return text
+    if len(text) > max_chars:
+        text = text[-max_chars:]
+    lines = text.splitlines()
+    if len(lines) > max_lines:
+        return "\n".join(lines[-max_lines:])
+    return text
+
+
 def run_viral_cutter(input_source, project_name, url, video_file, segments, viral, themes, min_duration, max_duration, ai_duration, model, manual_mode, api_key, ai_model_name, chunk_size, workflow,
                      use_custom_subs, font_name, font_size, font_color, highlight_color, outline_color, outline_thickness, shadow_color, shadow_size, is_bold, is_italic, is_uppercase, vertical_pos, margin_h, alignment,
                      h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs):
 
     global current_process
+
+    # --- Normaliza campos numéricos (gr.Number devolve None se o campo for
+    # apagado; sem isso, int(None) mata o gerador e o botão fica preso em
+    # "Gerando..." até recarregar a página) ---
+    def _safe_int(value, default):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return default
+    segments = _safe_int(segments, DEFAULT_UI_SETTINGS["segments"])
+    min_duration = _safe_int(min_duration, DEFAULT_UI_SETTINGS["min_duration"])
+    max_duration = _safe_int(max_duration, DEFAULT_UI_SETTINGS["max_duration"])
+    chunk_size = _safe_int(chunk_size, DEFAULT_UI_SETTINGS["chunk_size"])
 
     # --- SAVE UI STATE ---
     ui_state_to_save = {
@@ -147,13 +190,13 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
     # Input Source Logic
     if input_source == "Existing Project":
         if not project_name:
-             yield i18n("Error: No project selected."), gr.update(value=i18n("✨ Gerar meus cortes"), interactive=True), gr.update(visible=False), None, gr.update(visible=False), None
+             yield i18n("Error: No project selected."), gr.update(value=i18n("Gerar meus cortes"), interactive=True), gr.update(visible=False), None, gr.update(visible=False), None
              return
         full_project_path = os.path.join(VIRALS_DIR, project_name)
         cmd.extend(["--project-path", full_project_path])
     elif input_source == "Upload Video":
         if not video_file:
-             yield i18n("Error: No video file uploaded."), gr.update(value=i18n("✨ Gerar meus cortes"), interactive=True), gr.update(visible=False), None, gr.update(visible=False), None
+             yield i18n("Error: No video file uploaded."), gr.update(value=i18n("Gerar meus cortes"), interactive=True), gr.update(visible=False), None, gr.update(visible=False), None
              return
         
         # Determine project name from filename
@@ -192,7 +235,10 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
     if ai_duration: cmd.append("--ai-duration")
     cmd.extend(["--model", model])
     if manual_mode: cmd.append("--manual-webui")
-    if api_key: cmd.extend(["--api-key", api_key])
+    # A chave já foi persistida em api_config.json (lido pelo main). Só passa na
+    # linha de comando se a persistência falhou — argv é visível a outros processos.
+    if api_key and load_saved_api_key() != (api_key or "").strip():
+        cmd.extend(["--api-key", api_key])
 
     # AI Params
     if ai_model_name: cmd.extend(["--ai-model-name", str(ai_model_name)])
@@ -286,17 +332,20 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
                     parts = line.split("Project Folder:")
                     if len(parts) > 1: project_folder_path = parts[1].strip()
                 
-                # Throttle updates to avoid browser freeze (0.2s interval)
+                # Throttle (0.5s) + manda só a cauda do log: menos atualizações
+                # e cada uma barata, pra fila não acumular quando a janela está
+                # fora de foco (senão a galeria, que vem no último yield, só
+                # aparecia depois dos logs terminarem de rolar).
                 current_time = time.time()
-                if current_time - last_update_time > 0.2:
-                    yield logs, gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(visible=False), None
+                if current_time - last_update_time > 0.5:
+                    yield _tail_log(logs), gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(visible=False), None
                     last_update_time = current_time
-        
+
         # Final yield to ensure all logs are shown
-        yield logs, gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(visible=False), None
+        yield _tail_log(logs), gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(visible=False), None
     except Exception as e:
         logs += f"\nError running process: {str(e)}\n"
-        yield logs, gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(), gr.update()
+        yield _tail_log(logs), gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(), gr.update()
     finally:
         if current_process:
             if current_process.stdout:
@@ -326,7 +375,7 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
                       prompt_content = f.read()
             except: prompt_content = "Erro lendo prompt_full.txt. Acesse a pasta do projeto."
             
-        yield logs, gr.update(value=i18n("✨ Gerar meus cortes"), interactive=True), gr.update(visible=False), None, gr.update(visible=True), prompt_content
+        yield _tail_log(logs), gr.update(value=i18n("Gerar meus cortes"), interactive=True), gr.update(visible=False), None, gr.update(visible=True), prompt_content
         return
 
     html_output = ""
@@ -334,12 +383,16 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
         html_output = library.generate_project_gallery(project_folder_path, is_full_path=True)
     else:
         html_output = f"<h3>{i18n('Error: Project folder could not be determined from logs.')}</h3>"
-    yield logs, gr.update(value=i18n("✨ Gerar meus cortes"), interactive=True), gr.update(visible=False), html_output, gr.update(visible=False), None
+    yield _tail_log(logs), gr.update(value=i18n("Gerar meus cortes"), interactive=True), gr.update(visible=False), html_output, gr.update(visible=False), None
 
 # Tema e estilos da marca (Church Edition) — paleta esmeralda + branco.
 import styles
 from styles import CSS as css
 from theme import build_theme, PALETTE
+try:
+    from icons import icon
+except ImportError:
+    from webui.icons import icon
 
 import header
 
@@ -375,9 +428,9 @@ def save_api_key(key):
 
 def api_key_status_html():
     if load_saved_api_key():
-        return (f"<div style='color:{PALETTE['primary_deep']};font-size:0.9rem;font-weight:600;'>"
-                f"✅ {i18n('Chave de IA salva — não precisa digitar de novo.')}</div>")
-    return (f"<div style='color:{PALETTE['text_muted']};font-size:0.9rem;'>"
+        return (f"<div class='vc-icon-inline' style='color:var(--vc-primary-deep);font-size:0.9rem;font-weight:600;'>"
+                f"{icon('check', 17)}<span>{i18n('Chave de IA salva — não precisa digitar de novo.')}</span></div>")
+    return (f"<div style='color:var(--vc-text-muted);font-size:0.9rem;'>"
             f"{i18n('Nenhuma chave salva ainda.')}</div>")
 
 UI_SETTINGS_PATH = os.path.join(WORKING_DIR, "ui_settings.json")
@@ -440,32 +493,34 @@ def get_active_modules_html():
     try:
         cfg = watermark_handler.load_watermark_config()
         if cfg.get("enabled", False):
-            active.append("💧 " + i18n("Marca d'água"))
+            label = i18n("Marca d'água")
+            active.append(f"{icon('droplet', 15)}<span>{label}</span>")
     except: pass
 
     try:
         cfg = audio_handler.load_audio_config()
         if cfg.get("enabled", False):
-            active.append("🎵 " + i18n("Áudio BGM"))
+            active.append(f"{icon('music', 15)}<span>{i18n('Áudio BGM')}</span>")
         try:
             source_volume = float(cfg.get("source_video_volume", 200.0))
         except (TypeError, ValueError):
             source_volume = 200.0
         if abs(source_volume - 100.0) > 0.001:
-            active.append("🔊 " + i18n("Volume Original ({}%)").format(int(round(source_volume))))
+            label = i18n("Volume Original ({}%)").format(int(round(source_volume)))
+            active.append(f"{icon('volume-2', 15)}<span>{label}</span>")
     except: pass
 
     try:
         cfg = outro_handler.load_outro_config()
         if cfg.get("enabled", False):
-            active.append("🎬 " + i18n("Outro"))
+            active.append(f"{icon('film', 15)}<span>{i18n('Outro')}</span>")
     except: pass
     
     if active:
-        items = ', '.join(active)
-        return f"<div style='flex-grow: 1; padding: 8px 15px; background-color: {PALETTE['surface_soft']}; border: 1px solid {PALETTE['border_strong']}; border-radius: 10px; color: {PALETTE['primary_deeper']}; font-size: 0.95em; font-weight: 600; display: flex; align-items: center; justify-content: center;'><b>{i18n('Módulos Ativos')}:</b>&nbsp;{items}</div>"
+        items = ''.join(f"<span class='vc-chip'>{item}</span>" for item in active)
+        return f"<div class='vc-active-modules' style='flex-grow:1; padding:8px 15px; border-radius:10px; font-size:0.95em; font-weight:600; display:flex; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap;'><b>{i18n('Módulos Ativos')}:</b>{items}</div>"
     else:
-        return f"<div style='flex-grow: 1; padding: 8px 15px; background-color: {PALETTE['canvas']}; border: 1px solid {PALETTE['border']}; border-radius: 10px; color: {PALETTE['text_muted']}; font-size: 0.95em; display: flex; align-items: center; justify-content: center;'>{i18n('Nenhum módulo extra ativo para este projeto.')}</div>"
+        return f"<div class='vc-active-modules' style='flex-grow:1; padding:8px 15px; border-radius:10px; color:var(--vc-text-muted); font-size:0.95em; display:flex; align-items:center; justify-content:center;'>{i18n('Nenhum módulo extra ativo para este projeto.')}</div>"
 
 def _pick_uploaded_or_saved(uploaded_file, saved_path):
     return uploaded_file or saved_path
@@ -514,15 +569,15 @@ def _asset_status_html(rows):
     for desc, path in rows:
         if path and os.path.exists(path):
             html_rows.append(
-                f"<div style='color:{PALETTE['primary_deep']};'>✅ {desc}: <b>{os.path.basename(path)}</b></div>"
+                f"<div class='vc-icon-inline' style='color:var(--vc-primary-deep);'>{icon('check', 15)}<span>{desc}: <b>{os.path.basename(path)}</b></span></div>"
             )
         else:
             html_rows.append(
-                f"<div style='color:{PALETTE['text_muted']};'>— {desc}: {i18n('nenhum arquivo salvo')}</div>"
+                f"<div style='color:var(--vc-text-muted);'>- {desc}: {i18n('nenhum arquivo salvo')}</div>"
             )
     return (
         f"<div style='font-size:0.85em; line-height:1.5; padding:6px 10px; "
-        f"background:{PALETTE['surface_soft']}; border:1px solid {PALETTE['border']}; border-radius:10px;'>"
+        f"background:var(--vc-surface-soft); border:1px solid var(--vc-border); border-radius:10px;'>"
         + "".join(html_rows)
         + "</div>"
     )
@@ -549,8 +604,121 @@ def _audio_assets_from_state(saved_audio, saved_outro_music):
 _global_js = """
 (async () => {
     const st = document.createElement('style');
-    st.textContent = '@keyframes vc-spin{to{transform:rotate(360deg)}}.vc-spin{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:2px solid rgba(16,185,129,0.25);border-top-color:#10B981;border-radius:50%;animation:vc-spin .8s linear infinite}.vc-ok{color:#10B981!important;transform:scale(1.3);transition:all .3s}.vc-err{color:#E11D48!important;transform:scale(1.3);transition:all .3s}';
+    st.textContent = '@keyframes vc-spin{to{transform:rotate(360deg)}}.vc-spin{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:2px solid rgba(70,160,133,0.25);border-top-color:#46A085;border-radius:50%;animation:vc-spin .8s linear infinite}.vc-ok{color:#46A085!important;transform:scale(1.3);transition:all .3s}.vc-err{color:#E11D48!important;transform:scale(1.3);transition:all .3s}';
     document.head.appendChild(st);
+    const vcIconPaths = {
+        alert: '<path d="m21.7 18.9-8.5-15a1.4 1.4 0 0 0-2.4 0l-8.5 15A1.4 1.4 0 0 0 3.5 21h17a1.4 1.4 0 0 0 1.2-2.1Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path>',
+        broom: '<path d="M3 21h12"></path><path d="M5 21v-4.5L14.5 7"></path><path d="m14 7 3-3 3 3-3 3z"></path><path d="M8 16h7l-2 5H6z"></path>',
+        check: '<path d="M20 6 9 17l-5-5"></path>',
+        download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path>',
+        droplet: '<path d="M12 22a7 7 0 0 0 7-7c0-4-7-13-7-13S5 11 5 15a7 7 0 0 0 7 7Z"></path>',
+        edit: '<path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>',
+        film: '<rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M7 3v18"></path><path d="M17 3v18"></path><path d="M3 8h4"></path><path d="M17 8h4"></path><path d="M3 16h4"></path><path d="M17 16h4"></path>',
+        folder: '<path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path>',
+        key: '<circle cx="7.5" cy="15.5" r="5.5"></circle><path d="m21 2-9.6 9.6"></path><path d="m15 8 3 3"></path><path d="m17 6 3 3"></path>',
+        lightbulb: '<path d="M15 14c.2-1.1.8-1.8 1.5-2.7A6 6 0 1 0 7.5 11.3c.7.9 1.3 1.6 1.5 2.7"></path><path d="M9 18h6"></path><path d="M10 22h4"></path>',
+        message: '<path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 1 1 17 0Z"></path>',
+        moon: '<path d="M12 3a6.4 6.4 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>',
+        music: '<path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle>',
+        palette: '<circle cx="13.5" cy="6.5" r=".5"></circle><circle cx="17.5" cy="10.5" r=".5"></circle><circle cx="8.5" cy="7.5" r=".5"></circle><circle cx="6.5" cy="12.5" r=".5"></circle><path d="M12 22a10 10 0 1 1 10-10c0 3-2 4-4 4h-1.5a2.5 2.5 0 0 0 0 5H12Z"></path>',
+        play: '<path d="m8 5 11 7-11 7Z"></path>',
+        refresh: '<path d="M21 12a9 9 0 0 1-15.4 6.4L3 16"></path><path d="M3 21v-5h5"></path><path d="M3 12A9 9 0 0 1 18.4 5.6L21 8"></path><path d="M21 3v5h-5"></path>',
+        rotate: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5"></path>',
+        save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"></path><path d="M17 21v-8H7v8"></path><path d="M7 3v5h8"></path>',
+        scissors: '<circle cx="6" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M20 4 8.1 15.9"></path><path d="M14.5 14.5 20 20"></path><path d="M8.1 8.1 12 12"></path>',
+        search: '<circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path>',
+        sparkles: '<path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8Z"></path><path d="M5 3v4"></path><path d="M3 5h4"></path><path d="M19 17v4"></path><path d="M17 19h4"></path>',
+        sun: '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.9 4.9 1.4 1.4"></path><path d="m17.7 17.7 1.4 1.4"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.3 17.7-1.4 1.4"></path><path d="m19.1 4.9-1.4 1.4"></path>',
+        trash: '<path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="m19 6-1 14H6L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path>',
+        upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M17 8 12 3 7 8"></path><path d="M12 3v12"></path>',
+        volume: '<path d="M11 5 6 9H2v6h4l5 4Z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path><path d="M19 5a10 10 0 0 1 0 14"></path>',
+        wand: '<path d="M15 4V2"></path><path d="M15 16v-2"></path><path d="M8 9H6"></path><path d="M20 9h-2"></path><path d="m17.8 6.2 1.4-1.4"></path><path d="m10.8 13.2-1.4 1.4"></path><path d="m10.8 4.8-1.4-1.4"></path><path d="m17.8 11.8 1.4 1.4"></path><path d="m3 21 9-9"></path>',
+        x: '<circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path>',
+        zap: '<path d="M13 2 3 14h9l-1 8 10-12h-9Z"></path>'
+    };
+    function vcIcon(name, size = 18) {
+        const paths = vcIconPaths[name] || '';
+        return '<svg data-vc-icon="' + name + '" class="vc-icon" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + paths + '</svg>';
+    }
+    // Exposto globalmente: o JS do status amigável (logs_output.change) roda em
+    // outro escopo e precisa enxergar vcIcon — sem isso o status nunca aparece.
+    window.vcIcon = vcIcon;
+    function vcApplyTheme(theme) {
+        const next = theme === 'dark' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-vc-theme', next);
+        try { localStorage.setItem('vc-theme', next); } catch (e) {}
+        document.querySelectorAll('[data-vc-theme-toggle]').forEach((btn) => {
+            btn.innerHTML = vcIcon(next === 'dark' ? 'sun' : 'moon', 20);
+            btn.title = next === 'dark' ? 'Usar modo claro' : 'Usar modo escuro';
+            btn.setAttribute('aria-label', btn.title);
+        });
+    }
+    try {
+        const params = new URLSearchParams(window.location.search || '');
+        const requestedTheme = params.get('__theme') === 'dark' ? 'dark' : params.get('__theme') === 'light' ? 'light' : null;
+        vcApplyTheme(requestedTheme || localStorage.getItem('vc-theme') || 'dark');
+    } catch (e) {
+        vcApplyTheme('light');
+    }
+    document.body.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-vc-theme-toggle]');
+        if (!btn) return;
+        const current = document.documentElement.getAttribute('data-vc-theme') || 'light';
+        vcApplyTheme(current === 'dark' ? 'light' : 'dark');
+    }, true);
+    const vcDecorations = new Map([
+        ['Criar Cortes', 'film'],
+        ['Identidade da Igreja', 'palette'],
+        ["Logo / Marca d'água", 'droplet'],
+        ['Trilha sonora', 'music'],
+        ['Volume do vídeo', 'volume'],
+        ['Encerramento', 'film'],
+        ['Ajustar Legendas', 'edit'],
+        ['Meus Vídeos', 'folder'],
+        ['Sobre / Ajuda', 'lightbulb'],
+        ['Upar vídeo', 'upload'],
+        ['Link do YouTube', 'play'],
+        ['Projeto já criado', 'folder'],
+        ['Opções avançadas (não precisa mexer)', 'key'],
+        ['Salvar JSON e Pular Fase 1 (Retoma edição)', 'save'],
+        ['Render Animated Preview (Slow)', 'film'],
+        ['Renderizar Prévia Animada (Lento)', 'film'],
+        ['Gerar meus cortes', 'sparkles'],
+        ['Restaurar configurações padrão', 'rotate'],
+        ["Salvar Marca d'água", 'save'],
+        ['Atualizar Preview Manualmente', 'refresh'],
+        ['Salvar Configurações de Áudio', 'save'],
+        ['Salvar Volume Original', 'save'],
+        ['Salvar Configurações', 'save'],
+        ['Save Changes', 'save'],
+        ['Salvar Alterações', 'save'],
+        ['Render This Segment (Very-Fast)', 'zap'],
+        ['Renderizar Este Segmento (Muito Rápido)', 'zap'],
+        ['Render All (Fast)', 'film'],
+        ['Renderizar Tudo (Rápido)', 'film'],
+        ['Sim, limpar agora', 'trash'],
+        ['Analisar', 'search'],
+        ['Apagar tudo', 'trash'],
+        ['Refresh', 'refresh'],
+        ['Refresh List', 'refresh'],
+        ['Load Subtitles', 'edit']
+    ]);
+    function vcDecorateTextIcons() {
+        document.querySelectorAll('button, .tab-nav button').forEach((el) => {
+            if (el.dataset && el.dataset.vcDecorated === '1') return;
+            if (el.querySelector && el.querySelector('svg[data-vc-icon]')) return;
+            const text = (el.textContent || '').replace(/\\s+/g, ' ').trim();
+            const name = vcDecorations.get(text);
+            if (!name) return;
+            el.innerHTML = vcIcon(name, 17) + '<span>' + text + '</span>';
+            el.classList.add('vc-decorated-icon');
+            if (el.dataset) el.dataset.vcDecorated = '1';
+        });
+    }
+    setTimeout(vcDecorateTextIcons, 50);
+    setTimeout(vcDecorateTextIcons, 500);
+    setTimeout(vcDecorateTextIcons, 1500);
+    setTimeout(vcDecorateTextIcons, 3000);
     // Helper: reload the <video> tag in a card so the new burned subtitle is visible.
     function vcReloadVideoInCard(cardEl) {
         if (!cardEl) return;
@@ -677,7 +845,7 @@ _global_js = """
             const r = await fetch('/adjust_buffer_api?project=' + project + '&segment=' + segment + '&buffer_start=' + bufStart + '&buffer_end=' + bufEnd);
             const d = await r.json();
             if (d.success) {
-                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg> Pronto!';
+                btn.innerHTML = vcIcon('check', 16) + '<span>Pronto!</span>';
                 btn.classList.add('vc-ok');
                 // Reload video
                 let card = btn.closest('.viral-card') || btn.parentElement;
@@ -686,14 +854,14 @@ _global_js = """
                 setTimeout(() => { btn.innerHTML = oh; btn.classList.remove('vc-ok'); btn.style.pointerEvents = ''; btn.style.opacity = '1'; btn._vcL = false; startInput.disabled = false; endInput.disabled = false; }, 2500);
             } else {
                 console.warn('Buffer reprocess failed:', d.error);
-                btn.innerHTML = '✗ Falhou';
+                btn.innerHTML = vcIcon('x', 16) + '<span>Falhou</span>';
                 btn.classList.add('vc-err');
                 btn.title = 'Erro: ' + (d.error || 'falhou');
                 setTimeout(() => { btn.innerHTML = oh; btn.classList.remove('vc-err'); btn.title = ''; btn.style.pointerEvents = ''; btn.style.opacity = '1'; btn._vcL = false; startInput.disabled = false; endInput.disabled = false; }, 3500);
             }
         } catch (err) {
             console.warn('Buffer reprocess error:', err);
-            btn.innerHTML = '✗ Erro';
+            btn.innerHTML = vcIcon('x', 16) + '<span>Erro</span>';
             btn.classList.add('vc-err');
             setTimeout(() => { btn.innerHTML = oh; btn.classList.remove('vc-err'); btn.style.pointerEvents = ''; btn.style.opacity = '1'; btn._vcL = false; startInput.disabled = false; endInput.disabled = false; }, 3500);
         }
@@ -740,7 +908,7 @@ _global_js = """
                 btn._vcL = false;
             } else {
                 console.warn('Aplicar recurso falhou:', d.error);
-                btn.innerHTML = '<span>✗ Erro</span>';
+                btn.innerHTML = vcIcon('x', 14) + '<span>Erro</span>';
                 btn.style.background = '#E11D48';
                 btn.style.color = '#fff';
                 btn.title = 'Erro: ' + (d.error || 'falhou');
@@ -748,7 +916,7 @@ _global_js = """
             }
         } catch (err) {
             console.warn('Aplicar recurso erro:', err);
-            btn.innerHTML = '<span>✗ Erro</span>';
+            btn.innerHTML = vcIcon('x', 14) + '<span>Erro</span>';
             btn.style.background = '#7f1d1d';
             btn.style.color = '#fff';
             setTimeout(() => { btn.innerHTML = oh; btn.style.background = origBg; btn.style.pointerEvents = ''; btn.style.opacity = '1'; btn.title = origTitle; btn._vcL = false; }, 3500);
@@ -760,29 +928,29 @@ _global_js = """
 # Pergunta de limpeza só na 1ª carga por inicialização do app (não repete a cada refresh).
 _startup_cleanup_asked = False
 
-with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme(), css=css, js=_global_js) as demo:
+with gr.Blocks(title=i18n("Viral Cutter · Church Edition")) as demo:
     gr.HTML(header.header_html)
 
     # --- Pergunta "limpar arquivos antigos?" ao abrir o app (preenchida em demo.load) ---
     with gr.Group(visible=False) as startup_cleanup_banner:
         gr.Markdown(i18n(
-            "## 🧹 Limpar arquivos antigos?\n"
+            "## Limpar arquivos antigos?\n"
             "Encontrei projetos e temporários de execuções anteriores. Quer apagar agora para "
             "começar limpo? A pasta **Cortes IPB** (seus vídeos finais), seus **assets**, as "
             "**configurações** e a **chave de API** não serão tocados."
         ))
         startup_cleanup_box = gr.Textbox(label=i18n("O que pode ser apagado"), lines=8, interactive=False)
         with gr.Row():
-            startup_cleanup_yes = gr.Button(i18n("🗑️ Sim, limpar agora"), variant="stop")
+            startup_cleanup_yes = gr.Button(i18n("Sim, limpar agora"), variant="stop")
             startup_cleanup_no = gr.Button(i18n("Agora não, manter"), variant="secondary")
         startup_cleanup_status = gr.Markdown("")
 
     with gr.Tabs():
-        with gr.Tab(i18n("🎬 Criar Cortes")) as create_tab:
+        with gr.Tab(i18n("Criar Cortes")) as create_tab:
              with gr.Row():
                 with gr.Column(scale=1):
                     gr.HTML(styles.step_badge(1, i18n("Escolha o vídeo")))
-                    input_source = gr.Radio([(i18n("📁 Upar vídeo"), "Upload Video"), (i18n("▶️ Link do YouTube"), "YouTube URL"), (i18n("🗂️ Projeto já criado"), "Existing Project")], label=i18n("De onde vem o vídeo?"), value="Upload Video")
+                    input_source = gr.Radio([(i18n("Upar vídeo"), "Upload Video"), (i18n("Link do YouTube"), "YouTube URL"), (i18n("Projeto já criado"), "Existing Project")], label=i18n("De onde vem o vídeo?"), value="Upload Video")
                     
                     video_upload = gr.File(label=i18n("Arraste seu vídeo aqui (ou clique para escolher)"), file_count="single", file_types=["video"], visible=True)
                     url_input = gr.Textbox(label=i18n("Link do YouTube"), placeholder="https://www.youtube.com/watch?v=...", visible=False)
@@ -815,12 +983,12 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                     _ai_dur_initial = bool(ui_state.get("ai_duration", False))
                     ai_duration_input = gr.Checkbox(label=i18n("Deixar a IA decidir a duração de cada corte"), value=_ai_dur_initial, info=i18n("Recomendado. Se desligar, você define a duração mínima e máxima abaixo."))
                     with gr.Row():
-                        min_dur_input = gr.Number(label=i18n("Duração mínima (segundos)"), value=ui_state.get("min_duration", 60), interactive=not _ai_dur_initial)
+                        min_dur_input = gr.Number(label=i18n("Duração mínima (segundos)"), value=ui_state.get("min_duration", 60), visible=not _ai_dur_initial)
                         max_dur_input = gr.Number(label=(i18n("Teto de segurança (s)") if _ai_dur_initial else i18n("Duração máxima (segundos)")), value=ui_state.get("max_duration", 120))
                     def _toggle_ai_duration(ai):
-                        # Quando a IA decide: não há mínimo (campo Mín desabilitado);
-                        # o campo Máx continua valendo, mas como teto de segurança.
-                        return gr.update(interactive=not ai), gr.update(label=(i18n("Teto de segurança (s)") if ai else i18n("Duração máxima (segundos)")))
+                        # Quando a IA decide: não há mínimo — escondemos o campo Mín
+                        # (sinal visível de que mudou); o Máx continua como teto de segurança.
+                        return gr.update(visible=not ai), gr.update(label=(i18n("Teto de segurança (s)") if ai else i18n("Duração máxima (segundos)")))
                     ai_duration_input.change(_toggle_ai_duration, inputs=ai_duration_input, outputs=[min_dur_input, max_dur_input])
                 with gr.Column(scale=1):
                     gr.HTML(styles.step_badge(3, i18n("Inteligência Artificial"), i18n("configure uma vez")))
@@ -829,7 +997,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                     api_key_status = gr.HTML(api_key_status_html())
                     gr.Markdown(i18n("Não tem uma chave? O passo a passo para conseguir (é grátis) está na aba **Sobre**."))
 
-                    with gr.Accordion(i18n("⚙️ Opções avançadas (não precisa mexer)"), open=False):
+                    with gr.Accordion(i18n("Opções avançadas (não precisa mexer)"), open=False):
                         model_input = gr.Dropdown(["tiny", "small", "medium", "large", "large-v1", "large-v2", "large-v3", "turbo", "large-v3-turbo", "distil-large-v2", "distil-medium.en", "distil-small.en", "distil-large-v3"], label=i18n("Qualidade da transcrição"), value=ui_state.get("model", "large-v3-turbo"), info=i18n("Já está no melhor. Mude só se souber o que está fazendo."))
                         with gr.Row():
                             ai_model_input = gr.Dropdown(choices=GEMINI_MODELS, label=i18n("Modelo de IA"), value=ui_state.get("ai_model_name", GEMINI_MODELS[0]), allow_custom_value=True, visible=True, scale=5)
@@ -843,7 +1011,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                          manual_review_prompt = gr.Textbox(label=i18n("Prompt Gerado (Copie integralmente)"), interactive=False, lines=4)
                          manual_review_json = gr.Textbox(label=i18n("Cole o Retorno (JSON) da Inteligência Artificial Aqui"), lines=8, placeholder='{"segments": [...]}')
                          
-                         resume_manual_btn = gr.Button(i18n("💾 Salvar JSON e Pular Fase 1 (Retoma edição)"), variant="primary")
+                         resume_manual_btn = gr.Button(i18n("Salvar JSON e Pular Fase 1 (Retoma edição)"), variant="primary")
                          resume_status = gr.Textbox(label="Status de Salvamento", interactive=False)
                      
                          def resume_process(project_selection, upload_file, source, jsn):
@@ -886,7 +1054,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                                   return f"Erro ao interpretar o JSON: {e}", gr.update(), gr.update()
 
                               if not (isinstance(data, dict) and data.get("segments")):
-                                  return ("❌ Não encontrei uma lista 'segments' válida no JSON colado. "
+                                  return ("Erro: não encontrei uma lista 'segments' válida no JSON colado. "
                                           "Cole no formato {\"segments\": [...]} (pode vir com cercas ```json, eu limpo).",
                                           gr.update(), gr.update())
 
@@ -901,7 +1069,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                               if proj_name not in projs:
                                   projs = projs + [proj_name]
                               n = len(data["segments"])
-                              return (f"✅ {n} segmento(s) salvos em '{proj_name}'.\n"
+                              return (f"OK: {n} segmento(s) salvos em '{proj_name}'.\n"
                                       "AGORA CLIQUE EM 'Start Processing' para continuar o corte!",
                                       gr.update(value="Existing Project", visible=True),
                                       gr.update(choices=projs, value=proj_name, visible=True))
@@ -937,7 +1105,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                 preview_html = gr.HTML(value=f"<div style='text-align:center; padding:10px; color:#666;'>{i18n('Select options or preset to preview')}</div>")
                 
                 with gr.Row():
-                    preview_vid_btn = gr.Button(i18n("🎬 Render Animated Preview (Slow)"), size="sm")
+                    preview_vid_btn = gr.Button(i18n("Render Animated Preview (Slow)"), size="sm")
                 preview_vid = gr.Video(label=i18n("Animated Preview"), height=300, autoplay=True, interactive=False)
                 
                 with gr.Accordion(i18n("Advanced Settings"), open=False):
@@ -1026,7 +1194,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                      gr.update(value=d["segments"]),
                      gr.update(value=d["viral"]),
                      gr.update(value=d["themes"]),
-                     gr.update(value=d["min_duration"], interactive=not d["ai_duration"]),
+                     gr.update(value=d["min_duration"], visible=not d["ai_duration"]),
                      gr.update(value=d["max_duration"], label=i18n("Duração máxima (segundos)")),
                      gr.update(value=d["ai_duration"]),
                      gr.update(value=d["model"]),
@@ -1039,15 +1207,15 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
 
              gr.HTML(styles.step_badge(4, i18n("Gerar")))
              with gr.Row():
-                 start_btn = gr.Button(i18n("✨ Gerar meus cortes"), variant="primary", scale=2)
+                 start_btn = gr.Button(i18n("Gerar meus cortes"), variant="primary", scale=2)
                  stop_btn = gr.Button(i18n("Parar"), variant="stop", visible=False, scale=1)
                  active_modules_info = gr.HTML(scale=3)
              with gr.Row():
-                 restore_defaults_btn = gr.Button(i18n("↩️ Restaurar configurações padrão"), variant="secondary", size="sm", scale=1)
+                 restore_defaults_btn = gr.Button(i18n("Restaurar configurações padrão"), variant="secondary", size="sm", scale=1)
              restore_defaults_btn.click(restore_default_settings, outputs=_settings_components, queue=False, show_progress="hidden")
              friendly_status = gr.HTML('<div id="vc_status"></div>')
              with gr.Accordion(i18n("Ver detalhes técnicos"), open=False):
-                 logs_output = gr.Textbox(label=i18n("Registro do processamento"), lines=10, autoscroll=True, elem_id="logs_output")
+                 logs_output = gr.Textbox(label=i18n("Registro do processamento"), lines=18, max_lines=18, autoscroll=True, elem_id="logs_output")
              stop_btn.click(kill_process, outputs=[logs_output])
              
              # Force scroll to bottom via JS
@@ -1079,39 +1247,44 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                         try {
                             var box = document.getElementById('vc_status');
                             if (box) {
-                                var t = (ta.value || '').toLowerCase();
+                                // Só a cauda: barato mesmo se muitos .change dispararem
+                                // de uma vez quando a janela volta ao foco.
+                                var t = (ta.value || '').slice(-6000).toLowerCase();
                                 var stages = [
-                                    ['baixando', '⬇️ Baixando o vídeo...'],
-                                    ['download', '⬇️ Baixando o vídeo...'],
-                                    ['transcre', '📝 Transcrevendo o áudio...'],
-                                    ['transcrib', '📝 Transcrevendo o áudio...'],
-                                    ['viral', '✨ Encontrando os melhores momentos...'],
-                                    ['segmento', '✨ Encontrando os melhores momentos...'],
-                                    ['cortando', '✂️ Cortando os vídeos...'],
-                                    ['cutting', '✂️ Cortando os vídeos...'],
-                                    ['editing', '🎬 Montando os cortes verticais...'],
-                                    ['editando', '🎬 Montando os cortes verticais...'],
-                                    ['legenda', '💬 Gerando as legendas...'],
-                                    ['subtitle', '💬 Gerando as legendas...'],
-                                    ['conclu', 'done'],
-                                    ['sucesso', 'done'],
-                                    ['completed', 'done']
+                                    ['baixando', 'download', 'Baixando o vídeo...'],
+                                    ['download', 'download', 'Baixando o vídeo...'],
+                                    ['transcre', 'edit', 'Transcrevendo o áudio...'],
+                                    ['transcrib', 'edit', 'Transcrevendo o áudio...'],
+                                    ['viral', 'sparkles', 'Encontrando os melhores momentos...'],
+                                    ['segmento', 'sparkles', 'Encontrando os melhores momentos...'],
+                                    ['cortando', 'scissors', 'Cortando os vídeos...'],
+                                    ['cutting', 'scissors', 'Cortando os vídeos...'],
+                                    ['editing', 'film', 'Montando os cortes verticais...'],
+                                    ['editando', 'film', 'Montando os cortes verticais...'],
+                                    ['legenda', 'message', 'Gerando as legendas...'],
+                                    ['subtitle', 'message', 'Gerando as legendas...'],
+                                    ['conclu', 'done', ''],
+                                    ['sucesso', 'done', ''],
+                                    ['completed', 'done', '']
                                 ];
                                 var stage = null, done = false;
                                 for (var i=0;i<stages.length;i++){
                                     if (t.indexOf(stages[i][0])>=0){
-                                        if (stages[i][1]==='done'){ done = true; stage = '🎉 Pronto! Seus cortes estão prontos.'; }
-                                        else { stage = stages[i][1]; }
+                                        if (stages[i][1]==='done'){ done = true; stage = vcIcon('check', 18) + '<span>Pronto! Seus cortes estão prontos.</span>'; }
+                                        else { stage = vcIcon(stages[i][1], 18) + '<span>' + stages[i][2] + '</span>'; }
                                     }
                                 }
                                 var err = (t.indexOf('traceback')>=0);
-                                if (err) { stage = '⚠️ Algo deu errado — abra "Ver detalhes técnicos" abaixo.'; }
+                                if (err) { stage = vcIcon('alert', 18) + '<span>Algo deu errado - abra "Ver detalhes técnicos" abaixo.</span>'; }
                                 if (stage) {
-                                    var bg = err ? '#FEF2F2' : '#ECFDF5';
-                                    var col = err ? '#E11D48' : '#047857';
-                                    var bd = err ? '#FECDD3' : '#D1FAE5';
+                                    var bg = err ? 'rgba(225,29,72,.10)' : 'var(--vc-surface-soft)';
+                                    var col = err ? 'var(--vc-error)' : 'var(--vc-primary-deep)';
+                                    var bd = err ? 'rgba(225,29,72,.30)' : 'var(--vc-border)';
                                     var spin = (!done && !err) ? '<span class="vc-spin" style="width:16px;height:16px;border-width:2px;margin-right:4px;"></span>' : '';
-                                    box.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:12px 16px;border-radius:12px;background:'+bg+';color:'+col+';font-weight:600;border:1px solid '+bd+';">'+spin+'<span>'+stage+'</span></div>';
+                                    var html = '<div style="display:flex;align-items:center;gap:8px;padding:12px 16px;border-radius:12px;background:'+bg+';color:'+col+';font-weight:600;border:1px solid '+bd+';">'+spin+stage+'</div>';
+                                    // Não reescreve o DOM se nada mudou — evita
+                                    // travamento ao drenar a fila de updates.
+                                    if (box._vcLast !== html) { box.innerHTML = html; box._vcLast = html; }
                                 }
                             }
                         } catch(e) {}
@@ -1139,10 +1312,10 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
              ], outputs=[logs_output, start_btn, stop_btn, results_html, manual_review_group, manual_review_prompt])
 
 
-        with gr.Tab(i18n("🎨 Identidade da Igreja")):
+        with gr.Tab(i18n("Identidade da Igreja")):
             gr.HTML(styles.help_banner(i18n("Configure a identidade visual e sonora da sua igreja uma única vez. Tudo isso é aplicado automaticamente nos seus cortes.")))
             with gr.Tabs():
-                with gr.Tab(i18n("💧 Logo / Marca d'água")) as watermark_tab:
+                with gr.Tab(i18n("Logo / Marca d'água")) as watermark_tab:
                     gr.Markdown("### " + i18n("Configuração de Marca d'água"))
                     gr.HTML(styles.help_banner(i18n("Coloque o logo da sua igreja por cima de todos os cortes. Envie uma imagem PNG com fundo transparente e ajuste posição e tamanho na pré-visualização.")))
             
@@ -1161,9 +1334,9 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                             watermark_scale_input = gr.Slider(label=i18n("Escala (%)"), minimum=1, maximum=500, value=watermark_cfg.get("scale", 15), step=1)
                             watermark_opacity_input = gr.Slider(label=i18n("Opacidade (%)"), minimum=0, maximum=100, value=watermark_cfg.get("opacity", 30), step=1)
                     
-                            watermark_save_btn = gr.Button(i18n("💾 Salvar Marca d'água"), variant="primary")
+                            watermark_save_btn = gr.Button(i18n("Salvar Marca d'água"), variant="primary")
                             watermark_status_txt = gr.Textbox(label=i18n("Status"), interactive=False)
-                            watermark_refresh_preview_btn = gr.Button(i18n("🔄 Atualizar Preview Manualmente"))
+                            watermark_refresh_preview_btn = gr.Button(i18n("Atualizar Preview Manualmente"))
 
                         with gr.Column(scale=1):
                             gr.Markdown("#### " + i18n("Preview da Marca d'água (Fundo Demonstrativo)"))
@@ -1188,7 +1361,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                     watermark_tab.select(_watermark_preview_from_saved, inputs=watermark_inputs, outputs=watermark_preview_img, queue=False, show_progress="hidden")
                     watermark_tab.select(_watermark_asset_from_state, inputs=[watermark_image_state], outputs=watermark_saved_assets, queue=False, show_progress="hidden")
 
-                with gr.Tab(i18n("🎵 Trilha sonora")) as audio_tab:
+                with gr.Tab(i18n("Trilha sonora")) as audio_tab:
                     gr.Markdown("### " + i18n("Configuração de Áudio BGM (Background Music)"))
                     gr.HTML(styles.help_banner(i18n("Toca uma música de fundo baixinha durante os cortes. Envie um arquivo de áudio e ajuste o volume — dá para ouvir a prévia antes de salvar.")))
             
@@ -1214,7 +1387,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                         with gr.Column(scale=1):
                             gr.Markdown("#### " + i18n("Opções de Fim de Vídeo"))
                             gr.Markdown(i18n("Aumente ou reduza o volume do áudio de fundo automaticamente nos últimos segundos do vídeo."))
-                            audio_stop_before_outro_input = gr.Checkbox(label=i18n("💥 Parar Áudio BGM antes do Encerramento / Outro começar"), value=audio_cfg.get("stop_before_outro", True), info="Use se o seu Outro já possuir música própria.")
+                            audio_stop_before_outro_input = gr.Checkbox(label=i18n("Parar Áudio BGM antes do Encerramento / Outro começar"), value=audio_cfg.get("stop_before_outro", True), info="Use se o seu Outro já possuir música própria.")
                             audio_use_ending_volume_input = gr.Checkbox(label=i18n("Ativar Variação de Volume no Final"), value=audio_cfg.get("use_ending_volume", True))
                             audio_sync_outro_input = gr.Checkbox(label=i18n("Sincronizar tempo de Volume automaticamente com o Encerramento / Outro"), value=audio_cfg.get("sync_with_outro", True))
                             audio_ending_volume_input = gr.Slider(label=i18n("Volume Secundário / Final (%)"), minimum=0, maximum=100, value=audio_cfg.get("ending_volume", 20), step=1)
@@ -1223,7 +1396,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                             audio_crossfade_input = gr.Slider(label=i18n("Suavização da Variação (s) (Ignorado se 'Sincronizar' estiver ativo)"), minimum=0.0, maximum=10.0, value=audio_cfg.get("crossfade_duration", 3.0), step=0.5, visible=not audio_cfg.get("sync_with_outro", True))
 
                     gr.Markdown("---")
-                    gr.Markdown("### 🎵 " + i18n("Música de Encerramento (Outro Music)"))
+                    gr.Markdown("### " + i18n("Música de Encerramento (Outro Music)"))
                     gr.Markdown(i18n("Toca uma música específica durante a vinheta de encerramento. A BGM fará fade-out na transição e esta música fará fade-in no mesmo momento."))
 
                     with gr.Row():
@@ -1273,7 +1446,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                             )
 
                     with gr.Row():
-                        audio_save_btn = gr.Button(i18n("💾 Salvar Configurações de Áudio"), variant="primary")
+                        audio_save_btn = gr.Button(i18n("Salvar Configurações de Áudio"), variant="primary")
                     audio_status_txt = gr.Textbox(label=i18n("Status"), interactive=False)
             
                     gr.Markdown("---")
@@ -1380,7 +1553,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                     )
 
 
-                with gr.Tab(i18n("🔊 Volume do vídeo")) as original_volume_tab:
+                with gr.Tab(i18n("Volume do vídeo")) as original_volume_tab:
                     gr.Markdown("### " + i18n("Visualização em Tempo Real do Volume Original"))
                     gr.HTML(styles.help_banner(i18n("Controla o volume da voz original do vídeo nos cortes. Use se a pregação ficou baixa ou alta demais.")))
                     gr.Markdown(i18n("Ajuste o volume final do áudio original do vídeo. Este valor será aplicado na exportação, mesmo sem BGM."))
@@ -1408,7 +1581,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                                 file_types=["video"],
                                 file_count="single"
                             )
-                            source_volume_save_btn = gr.Button(i18n("💾 Salvar Volume Original"), variant="primary")
+                            source_volume_save_btn = gr.Button(i18n("Salvar Volume Original"), variant="primary")
                             source_volume_status_txt = gr.Textbox(label=i18n("Status"), interactive=False)
                         with gr.Column(scale=1):
                             source_preview_html = gr.HTML(
@@ -1436,7 +1609,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                         outputs=source_volume_status_txt
                     ).then(get_active_modules_html, inputs=[], outputs=active_modules_info)
 
-                with gr.Tab(i18n("🎬 Encerramento")) as outro_tab:
+                with gr.Tab(i18n("Encerramento")) as outro_tab:
                     gr.Markdown(f"### {i18n('Configuração de Outro/Encerramento')}")
                     gr.HTML(styles.help_banner(i18n("Adiciona uma vinheta no fim de cada corte (ex.: convite para seguir a igreja). Envie um vídeo curto e, se quiser, uma imagem por cima.")))
             
@@ -1453,7 +1626,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
 
                             outro_fade_input = gr.Slider(label=i18n("Duração do Fade (s)"), minimum=0.0, maximum=3.0, value=outro_cfg.get("fade_duration", 1), step=0.1)
                             outro_volume_input = gr.Slider(
-                                label=i18n("🔊 Volume do Vídeo de Encerramento (%)"),
+                                label=i18n("Volume do Vídeo de Encerramento (%)"),
                                 minimum=0, maximum=200, value=outro_cfg.get("outro_volume", 100), step=5,
                                 info=i18n("Só tem efeito quando o vídeo de Outro possui áudio próprio. 100% = volume original, 0% = mudo.")
                             )
@@ -1464,9 +1637,9 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                             outro_scale_input = gr.Slider(label=i18n("Escala (%)"), minimum=1, maximum=500, value=outro_cfg.get("scale", 42), step=1)
                             outro_rounded_corners_input = gr.Slider(label=i18n("Bordas Arredondadas (%)"), minimum=0, maximum=50, value=outro_cfg.get("rounded_corners", 10), step=1)
                     
-                            outro_save_btn = gr.Button(i18n("💾 Salvar Configurações"), variant="primary")
+                            outro_save_btn = gr.Button(i18n("Salvar Configurações"), variant="primary")
                             outro_status_txt = gr.Textbox(label=i18n("Status"), interactive=False)
-                            outro_refresh_preview_btn = gr.Button(i18n("🔄 Atualizar Preview Manualmente"))
+                            outro_refresh_preview_btn = gr.Button(i18n("Atualizar Preview Manualmente"))
 
                         with gr.Column(scale=1):
                             gr.Markdown(f"#### {i18n('Preview da Composição')}")
@@ -1491,7 +1664,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                     outro_tab.select(_outro_preview_from_saved, inputs=outro_inputs, outputs=outro_preview_img, queue=False, show_progress="hidden")
                     outro_tab.select(_outro_assets_from_state, inputs=[outro_video_state, outro_image_state], outputs=outro_saved_assets, queue=False, show_progress="hidden")
 
-        with gr.Tab(i18n("✏️ Ajustar Legendas")) as subtitle_editor_tab:
+        with gr.Tab(i18n("Ajustar Legendas")) as subtitle_editor_tab:
             gr.Markdown(f"### {i18n('Ajustar legendas')}")
             gr.HTML(styles.help_banner(i18n("Corrija o texto das legendas à mão: escolha o projeto e o corte, edite na tabela e clique em renderizar para aplicar.")))
             
@@ -1518,9 +1691,9 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
             )
 
             with gr.Row():
-                editor_save_btn = gr.Button(i18n("💾 Save Changes"), variant="primary")
-                editor_render_single_btn = gr.Button(i18n("⚡ Render This Segment (Very-Fast)"), variant="secondary")
-                editor_render_all_btn = gr.Button(i18n("🎬 Render All (Fast)"), variant="stop")
+                editor_save_btn = gr.Button(i18n("Save Changes"), variant="primary")
+                editor_render_single_btn = gr.Button(i18n("Render This Segment (Very-Fast)"), variant="secondary")
+                editor_render_all_btn = gr.Button(i18n("Render All (Fast)"), variant="stop")
             
             editor_status = gr.Textbox(label=i18n("Status"), interactive=False)
 
@@ -1648,8 +1821,12 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                      cmd.extend(["--subtitle-config", subtitle_config_path])
 
                 try:
-                    subprocess.Popen(cmd, cwd=WORKING_DIR)
-                    return i18n("Render All started in background... Check terminal/logs.")
+                    # Sem isso o usuário (principalmente no Colab) não tem como
+                    # acompanhar nem diagnosticar o render em segundo plano.
+                    log_path = os.path.join(proj_path, "render_all.log")
+                    log_file = open(log_path, "w", encoding="utf-8")
+                    subprocess.Popen(cmd, cwd=WORKING_DIR, stdout=log_file, stderr=subprocess.STDOUT)
+                    return i18n("Render All started in background... Check terminal/logs.") + f"\nLog: {log_path}"
                 except Exception as e:
                     return i18n("Error starting render: {}").format(e)
 
@@ -1660,7 +1837,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
             )
 
 
-        with gr.Tab(i18n("📁 Meus Vídeos")) as library_tab:
+        with gr.Tab(i18n("Meus Vídeos")) as library_tab:
             gr.Markdown(f"### {i18n('Seus cortes prontos')}")
             gr.HTML(styles.help_banner(i18n("Escolha um projeto para ver os cortes gerados. Em cada corte você pode baixar, corrigir a legenda com IA, aplicar logo/trilha/encerramento e ajustar a margem.")))
             with gr.Row():
@@ -1672,7 +1849,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
             project_dropdown.change(on_select_project, project_dropdown, project_gallery_html)
             library_tab.select(library.refresh_projects, outputs=project_dropdown, queue=False, show_progress="hidden")
 
-            with gr.Accordion(i18n("🧹 Limpar Lixo (arquivos gerados)"), open=False):
+            with gr.Accordion(i18n("Limpar Lixo (arquivos gerados)"), open=False):
                 gr.Markdown(i18n(
                     "Apaga **todos os projetos em VIRALS**, vídeos de teste, temporários e previews. "
                     "**NÃO** apaga a pasta 'Cortes IPB' (seus vídeos finais), os assets enviados "
@@ -1682,8 +1859,8 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                 ))
                 cleanup_preview_box = gr.Textbox(label=i18n("Prévia (o que será apagado)"), lines=10, interactive=False)
                 with gr.Row():
-                    cleanup_scan_btn = gr.Button(i18n("🔎 Analisar"))
-                    cleanup_confirm_btn = gr.Button(i18n("🗑️ Apagar tudo"), variant="stop", visible=False)
+                    cleanup_scan_btn = gr.Button(i18n("Analisar"))
+                    cleanup_confirm_btn = gr.Button(i18n("Apagar tudo"), variant="stop", visible=False)
                 cleanup_status = gr.Textbox(label=i18n("Status"), interactive=False)
 
                 def _scan_garbage():
@@ -1697,7 +1874,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition"), theme=build_theme()
                     _do_clean, outputs=[cleanup_status, cleanup_confirm_btn, cleanup_preview_box]
                 ).then(library.refresh_projects, outputs=project_dropdown, queue=False, show_progress="hidden")
 
-        with gr.Tab(i18n("❓ Sobre / Ajuda")) as about_tab:
+        with gr.Tab(i18n("Sobre / Ajuda")) as about_tab:
             gr.HTML(header.about_html)
 
         demo.load(get_active_modules_html, inputs=[], outputs=active_modules_info, queue=False, show_progress="hidden")
@@ -2083,6 +2260,9 @@ if __name__ == "__main__":
             allowed_paths=allowed_dirs,
             prevent_thread_lock=True,
             ssr_mode=False,
+            theme=build_theme(),
+            css=css,
+            js=_global_js,
             server_name="0.0.0.0",
             server_port=args.server_port,
             show_error=True,
@@ -2094,9 +2274,9 @@ if __name__ == "__main__":
         # Polish Subs, Adjust Buffer, Export XML) returns 404 and the
         # gallery hangs when the user switches to that tab.
         attach_extra_routes(app)
-        print(f"✅ All API routes mounted (apply_feature, polish_segment, adjust_buffer).")
+        print("All API routes mounted (apply_feature, polish_segment, adjust_buffer).")
         if share_url:
-            print(f"🌐 Public URL: {share_url}")
+            print(f"Public URL: {share_url}")
 
         demo.block_thread()
     elif is_windows:
@@ -2108,7 +2288,10 @@ if __name__ == "__main__":
             inbrowser=not args.no_browser,
             server_name="0.0.0.0",
             server_port=args.server_port,
-            prevent_thread_lock=True
+            prevent_thread_lock=True,
+            theme=build_theme(),
+            css=css,
+            js=_global_js
         )
         attach_extra_routes(app)
         demo.block_thread()
@@ -2118,5 +2301,14 @@ if __name__ == "__main__":
         app = FastAPI()
         attach_extra_routes(app)
         # Disable SSR to prevent Node proxying issues on HF Spaces
-        app = gr.mount_gradio_app(app, demo.queue(), path="/", allowed_paths=allowed_dirs, ssr_mode=False)
+        app = gr.mount_gradio_app(
+            app,
+            demo.queue(),
+            path="/",
+            allowed_paths=allowed_dirs,
+            ssr_mode=False,
+            theme=build_theme(),
+            css=css,
+            js=_global_js,
+        )
         uvicorn.run(app, host="0.0.0.0", port=args.server_port)

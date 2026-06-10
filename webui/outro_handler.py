@@ -4,9 +4,9 @@ import cv2
 import numpy as np
 
 try:
-    from media_utils import extract_file_path, persist_replacing, resolve_existing_path
+    from media_utils import extract_file_path, persist_replacing, resolve_existing_path, to_project_relative
 except ImportError:
-    from webui.media_utils import extract_file_path, persist_replacing, resolve_existing_path
+    from webui.media_utils import extract_file_path, persist_replacing, resolve_existing_path, to_project_relative
 
 CONFIG_FILE = "outro_config.json"
 
@@ -56,8 +56,9 @@ def save_outro_config(enabled, outro_video_path, overlay_image_path, position_x,
 
     config = {
         "enabled": enabled,
-        "outro_video_path": persisted_outro,
-        "overlay_image_path": persisted_overlay,
+        # Relativos à raiz do projeto: funcionam no Windows e no Colab
+        "outro_video_path": to_project_relative(persisted_outro),
+        "overlay_image_path": to_project_relative(persisted_overlay),
         "position_x": position_x,
         "position_y": position_y,
         "scale": scale,

@@ -5,12 +5,12 @@
     "viral": true,
     "themes": "",
     "min_duration": 60,
-    "max_duration": 90,
+    "max_duration": 100,
     "ai_duration": true,
     "model": "large-v3-turbo",
     "manual_mode": false,
     "ai_model_name": "gemini-3.5-flash",
     "chunk_size": 70000,
-    "workflow": "Full",
+    "workflow": "Subtitles Only",
     "margin_h": 35
 }

@@ -16,6 +16,10 @@ try:
     from theme import PALETTE
 except ImportError:
     from webui.theme import PALETTE
+try:
+    from icons import icon
+except ImportError:
+    from webui.icons import icon
 
 # Setup Virals Dir relative to this file
 # This file is in webui/library.py
@@ -28,10 +32,24 @@ i18n = I18nAuto(language="pt_BR")
 
 VIRALS_DIR = os.path.join(BASE_DIR, "VIRALS")
 
+# No Colab a pasta "Cortes IPB" (vídeos finais) fica DENTRO de VIRALS (no Drive).
+# Ela nunca deve aparecer como "projeto" nem entrar na limpeza.
+from scripts.export_paths import CORTES_IPB_NAME, is_colab
+
 
 # URL Mode: "fastapi" (default) or "gradio"
 URL_MODE = "fastapi"
 GALLERY_MAX_CARDS = None
+
+
+def _video_notice_html(message):
+    return (
+        '<div style="position:absolute; top:0; left:0; width:100%; height:100%; '
+        'display:flex; flex-direction:column; align-items:center; justify-content:center; '
+        'gap:8px; background:var(--vc-surface-soft); color:var(--vc-text-muted); '
+        'text-align:center; padding:18px;">'
+        f'{icon("alert-triangle", 26)}<span>{message}</span></div>'
+    )
 
 def set_url_mode(mode):
     global URL_MODE
@@ -53,6 +71,8 @@ def get_existing_projects():
         with os.scandir(VIRALS_DIR) as entries:
             for entry in entries:
                 if not entry.is_dir(follow_symlinks=True):
+                    continue
+                if entry.name == CORTES_IPB_NAME:
                     continue
                 try:
                     modified = entry.stat(follow_symlinks=True).st_mtime
@@ -119,9 +139,12 @@ def _is_safe_to_delete(p):
 def get_garbage_targets():
     """Lista (somente) o 'lixo óbvio' a ser apagado."""
     targets = []
-    # 1) Todos os projetos/arquivos dentro de VIRALS
+    # 1) Todos os projetos/arquivos dentro de VIRALS (exceto "Cortes IPB",
+    #    que no Colab guarda os vídeos finais do usuário no Drive)
     if os.path.isdir(VIRALS_DIR):
         for name in sorted(os.listdir(VIRALS_DIR)):
+            if name == CORTES_IPB_NAME:
+                continue
             targets.append(os.path.join(VIRALS_DIR, name))
     # 2) Vídeos de teste/saída e temporários soltos na raiz
     for name in ("out_test_vid.mp4", "test_vid.mp4", "test_vid_no_audio.mp4",
@@ -146,7 +169,7 @@ def preview_garbage():
     """Retorna (texto_para_exibir, lista_de_alvos) SEM apagar nada."""
     targets = get_garbage_targets()
     if not targets:
-        return i18n("Nada para limpar — já está tudo limpo. ✨"), []
+        return i18n("Nada para limpar — já está tudo limpo."), []
     lines = []
     total = 0
     for p in targets:
@@ -158,15 +181,21 @@ def preview_garbage():
     header = (
         f"{len(targets)} item(ns) serão apagados — {_human_size(total)} no total.\n"
         "NÃO serão tocados: a pasta 'Cortes IPB', seus assets enviados, "
-        "as configurações e a chave de API.\n\n"
+        "as configurações e a chave de API.\n"
     )
+    if is_colab():
+        header += (
+            "ATENÇÃO (Colab): os projetos em VIRALS estão no seu Google Drive — "
+            "apagar aqui apaga do Drive também.\n"
+        )
+    header += "\n"
     return header + "\n".join(lines), targets
 
 def clean_garbage():
     """Apaga o lixo óbvio (re-escaneia no momento do clique). Retorna relatório."""
     targets = get_garbage_targets()
     if not targets:
-        return i18n("Nada para limpar — já está tudo limpo. ✨")
+        return i18n("Nada para limpar — já está tudo limpo.")
     deleted = 0
     freed = 0
     errors = []
@@ -184,9 +213,9 @@ def clean_garbage():
         except Exception as e:
             errors.append(f"{os.path.relpath(p, BASE_DIR)}: {e}")
     os.makedirs(VIRALS_DIR, exist_ok=True)  # mantém a pasta VIRALS (vazia)
-    msg = f"✅ Limpeza concluída: {deleted} item(ns) apagados, {_human_size(freed)} liberados."
+    msg = f"OK: limpeza concluída: {deleted} item(ns) apagados, {_human_size(freed)} liberados."
     if errors:
-        msg += ("\n\n⚠️ Alguns itens não puderam ser apagados (talvez em uso por outro "
+        msg += ("\n\nAtenção: alguns itens não puderam ser apagados (talvez em uso por outro "
                 "programa):\n" + "\n".join(errors[:20]))
     return msg
 
@@ -304,7 +333,7 @@ def generate_project_gallery(project_path_name, is_full_path=False):
                             Your browser does not support the video tag.
                         </video>
                         """
-                         download_link = f'<a href="{video_src}" target="_blank" download="{os.path.basename(video_path)}" style="color: #64748B; display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s;" title="Download" onmouseover="this.style.color=\'#059669\'" onmouseout="this.style.color=\'#64748B\'"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>'
+                         download_link = f'<a href="{video_src}" target="_blank" download="{os.path.basename(video_path)}" style="color: var(--vc-text-muted); display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s;" title="Download" onmouseover="this.style.color=\'var(--vc-primary-deep)\'" onmouseout="this.style.color=\'var(--vc-text-muted)\'">{icon("download", 22)}</a>'
 
                     else:
                         # Use Relative Path through /virals mount
@@ -331,15 +360,15 @@ def generate_project_gallery(project_path_name, is_full_path=False):
                             """
                             
                             
-                            download_link = f'<a href="{video_src}" download="{os.path.basename(video_path)}" style="color: #64748B; display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s;" title="Download" onmouseover="this.style.color=\'#059669\'" onmouseout="this.style.color=\'#64748B\'"><svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>'
+                            download_link = f'<a href="{video_src}" download="{os.path.basename(video_path)}" style="color: var(--vc-text-muted); display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s;" title="Download" onmouseover="this.style.color=\'var(--vc-primary-deep)\'" onmouseout="this.style.color=\'var(--vc-text-muted)\'">{icon("download", 22)}</a>'
                             
                         else:
-                            video_tag = f'<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #F1F5F9; color: #94A3B8;"><span>⚠️</span><br>{i18n("External Video")}</div>'
+                            video_tag = _video_notice_html(i18n("External Video"))
                 except Exception as e:
-                    video_tag = f'<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #F1F5F9; color: #94A3B8;"><span>⚠️</span><br>{i18n("Error: {}").format(str(e))}</div>'
+                    video_tag = _video_notice_html(i18n("Error: {}").format(str(e)))
 
             else:
-                video_tag = f'<div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #F1F5F9; color: #94A3B8;"><span>⚠️</span><br>{i18n("Not Found")}</div>'
+                video_tag = _video_notice_html(i18n("Not Found"))
             
             # Score
             score_color = PALETTE["primary_deep"]
@@ -353,10 +382,10 @@ def generate_project_gallery(project_path_name, is_full_path=False):
             # Polish Subs Button (AI correction for this segment's subtitles)
             try:
                 proj_name_polish = urllib.parse.quote(os.path.basename(project_path_name), safe="")
-                polish_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"></path><path d="M20 3v4"></path><path d="M22 5h-4"></path><path d="M4 17v2"></path><path d="M5 18H3"></path></svg>'
+                polish_svg = icon("wand", 22)
                 polish_btn_title = i18n("Corrigir legenda com IA")
                 escaped_polish_title = html.escape(polish_btn_title, quote=True)
-                polish_btn = f'<button type="button" class="polish-subs-btn" data-project="{proj_name_polish}" data-segment="{i}" style="color: #64748B; display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s; cursor: pointer; background: transparent; border: none; margin: 0;" title="{escaped_polish_title}" aria-label="{escaped_polish_title}">{polish_svg}</button>'
+                polish_btn = f'<button type="button" class="polish-subs-btn" data-project="{proj_name_polish}" data-segment="{i}" style="color: var(--vc-text-muted); display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s; cursor: pointer; background: transparent; border: none; margin: 0;" title="{escaped_polish_title}" aria-label="{escaped_polish_title}">{polish_svg}</button>'
             except Exception:
                 polish_btn = ""
 
@@ -364,24 +393,26 @@ def generate_project_gallery(project_path_name, is_full_path=False):
             buffer_control_html = ""
             has_buffer_data = "original_start_time" in seg
             if has_buffer_data:
-                buf_start = int(seg.get("buffer_start_used", seg.get("buffer_seconds", 5)))
-                buf_end = int(seg.get("buffer_end_used", seg.get("buffer_seconds", 5)))
+                # Padrão atual é corte limpo (buffer 0 = saldo cheio); só projetos
+                # legados com buffer embutido trazem buffer_seconds explícito.
+                buf_start = int(seg.get("buffer_start_used", seg.get("buffer_seconds", 0)))
+                buf_end = int(seg.get("buffer_end_used", seg.get("buffer_seconds", 0)))
                 saldo_start = 5 - buf_start
                 saldo_end = 5 - buf_end
                 proj_name_buffer = urllib.parse.quote(os.path.basename(project_path_name), safe="")
 
-                input_style = f"width: 44px; height: 26px; background: #FFFFFF; color: {PALETTE['text']}; border: 1px solid {PALETTE['border_strong']}; border-radius: 5px; text-align: center; font-size: 13px; font-family: sans-serif; -moz-appearance: textfield;"
-                label_style = f"color: {PALETTE['text_soft']}; font-size: 11px; font-family: sans-serif; white-space: nowrap;"
-                saldo_style = f"color: {PALETTE['text_muted']}; font-size: 10px; font-family: sans-serif; white-space: nowrap;"
+                input_style = "width: 44px; height: 26px; background: var(--vc-surface); color: var(--vc-text); border: 1px solid var(--vc-border-strong); border-radius: 5px; text-align: center; font-size: 13px; font-family: sans-serif; -moz-appearance: textfield;"
+                label_style = "color: var(--vc-text-soft); font-size: 11px; font-family: sans-serif; white-space: nowrap;"
+                saldo_style = "color: var(--vc-text-muted); font-size: 10px; font-family: sans-serif; white-space: nowrap;"
                 row_style = "display: flex; align-items: center; gap: 6px; justify-content: space-between;"
 
                 # Unique IDs for JS to find sibling inputs
                 uid = f"buf_{i}"
 
                 buffer_control_html = f'''
-                    <div style="margin-top: 8px; padding: 8px 6px; background: {PALETTE['surface_soft']}; border-radius: 10px; border: 1px solid {PALETTE['border']}; display: flex; flex-direction: column; gap: 5px;">
+                    <div style="margin-top: 8px; padding: 8px 6px; background: var(--vc-surface-soft); border-radius: 10px; border: 1px solid var(--vc-border); display: flex; flex-direction: column; gap: 5px;">
                         <div style="display: flex; align-items: center; gap: 4px; justify-content: center; margin-bottom: 2px;">
-                            <span style="color: {PALETTE['text_soft']}; font-size: 11px; font-family: sans-serif;">⏱️ Margem de segurança</span>
+                            <span class="vc-icon-inline" style="color: var(--vc-text-soft); font-size: 11px; font-family: sans-serif;">{icon("refresh", 13)}<span>Margem de segurança</span></span>
                         </div>
                         <div style="{row_style}">
                             <span style="{label_style}">Início:</span>
@@ -395,7 +426,7 @@ def generate_project_gallery(project_path_name, is_full_path=False):
                             <span style="{label_style}">s</span>
                             <span class="saldo-end" style="{saldo_style}">(saldo: {saldo_end}s)</span>
                         </div>
-                        <button type="button" class="reprocess-buffer-btn" data-project="{proj_name_buffer}" data-segment="{i}" data-start-id="{uid}_start" data-end-id="{uid}_end" style="margin-top: 3px; padding: 5px 10px; background: {PALETTE['grad']}; color: #fff; font-weight: 700; font-size: 12px; font-family: sans-serif; border: none; border-radius: 8px; cursor: pointer; transition: filter 0.2s; display: flex; align-items: center; justify-content: center; gap: 5px;" onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter='brightness(1)'">🔄 Reprocessar</button>
+                        <button type="button" class="reprocess-buffer-btn" data-project="{proj_name_buffer}" data-segment="{i}" data-start-id="{uid}_start" data-end-id="{uid}_end" style="margin-top: 3px; padding: 5px 10px; background: var(--vc-grad); color: #fff; font-weight: 700; font-size: 12px; font-family: sans-serif; border: none; border-radius: 8px; cursor: pointer; transition: filter 0.2s; display: flex; align-items: center; justify-content: center; gap: 5px;" onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter='brightness(1)'">{icon("refresh", 13)}<span>Reprocessar</span></button>
                     </div>
                 '''
 
@@ -445,7 +476,7 @@ def generate_project_gallery(project_path_name, is_full_path=False):
             <div class="viral-card" style="display: flex; flex-direction: column; background: transparent; overflow: visible;">
                 
                 <!-- Video Player Container (9:16 Aspect Ratio) -->
-                <div class="vc-video-wrap" style="position: relative; width: 100%; padding-top: 177.77%; background: #0F172A; border-radius: 14px; overflow: hidden; margin-bottom: 12px; border: 1px solid {PALETTE['border_strong']}; box-shadow: 0 6px 16px rgba(16,185,129,0.10); transition: box-shadow .2s ease;">
+                <div class="vc-video-wrap" style="position: relative; width: 100%; padding-top: 177.77%; background: #0F172A; border-radius: 14px; overflow: hidden; margin-bottom: 12px; border: 1px solid {PALETTE['border_strong']}; box-shadow: 0 6px 16px rgba(52,126,102,0.10); transition: box-shadow .2s ease;">
                     {video_tag}
                 </div>
                 

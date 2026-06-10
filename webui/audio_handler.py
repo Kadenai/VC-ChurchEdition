@@ -8,6 +8,7 @@ try:
         extract_file_path,
         persist_replacing,
         resolve_existing_path,
+        to_project_relative,
     )
 except ImportError:
     from webui.media_utils import (
@@ -16,6 +17,7 @@ except ImportError:
         extract_file_path,
         persist_replacing,
         resolve_existing_path,
+        to_project_relative,
     )
 
 CONFIG_FILE = "audio_config.json"
@@ -124,7 +126,8 @@ def save_audio_config(
 
     config = {
         "enabled": enabled,
-        "audio_file_path": persisted_audio_path,
+        # Relativo à raiz do projeto: funciona no Windows e no Colab
+        "audio_file_path": to_project_relative(persisted_audio_path),
         "base_volume": base_volume,
         "source_video_volume": _clamp_source_video_volume(source_video_volume),
         "loop_to_end": loop_to_end,
@@ -138,7 +141,7 @@ def save_audio_config(
         "ending_start_time": ending_start_time,
         "outro_music": {
             "enabled": outro_music_enabled,
-            "audio_file_path": persisted_outro_music_path,
+            "audio_file_path": to_project_relative(persisted_outro_music_path),
             "volume": outro_music_volume,
             "start_from": outro_music_start_from if outro_music_start_from in ("start", "end") else "end",
             "fade_in_duration": outro_music_fade_in,
@@ -157,6 +160,10 @@ def save_audio_config(
 def save_source_video_volume(source_video_volume):
     config = load_audio_config()
     config["source_video_volume"] = _clamp_source_video_volume(source_video_volume)
+    # load_audio_config resolve para caminhos absolutos; regrava como relativos
+    config["audio_file_path"] = to_project_relative(config.get("audio_file_path"))
+    if isinstance(config.get("outro_music"), dict):
+        config["outro_music"]["audio_file_path"] = to_project_relative(config["outro_music"].get("audio_file_path"))
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=4)

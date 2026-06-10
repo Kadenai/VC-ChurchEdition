@@ -5,6 +5,11 @@ import tempfile
 import json
 
 try:
+    from scripts.asset_paths import resolve_asset_path
+except ImportError:
+    from asset_paths import resolve_asset_path
+
+try:
     from scripts.edit_video import get_best_encoder
 except ImportError:
     def get_best_encoder():
@@ -136,8 +141,8 @@ def apply_audio_to_video(input_video, audio_path, config, output_video):
     # --- Outro Music config ---
     outro_music_cfg = config.get("outro_music", {})
     outro_music_enabled = bool(outro_music_cfg.get("enabled", False))
-    outro_music_path = outro_music_cfg.get("audio_file_path", "")
-    has_outro_music = outro_music_enabled and bool(outro_music_path and os.path.exists(outro_music_path))
+    outro_music_path = resolve_asset_path(outro_music_cfg.get("audio_file_path", ""))
+    has_outro_music = outro_music_enabled and bool(outro_music_path)
 
     if not has_bgm_audio and not has_outro_music:
         return apply_source_volume_only(input_video, source_volume_factor, output_video)
@@ -170,8 +175,8 @@ def apply_audio_to_video(input_video, audio_path, config, output_video):
                 outro_config = json.load(f)
             if outro_config.get("enabled", False):
                 outro_enabled = True
-                outro_video = outro_config.get("outro_video_path")
-                if outro_video and os.path.exists(outro_video):
+                outro_video = resolve_asset_path(outro_config.get("outro_video_path"))
+                if outro_video:
                     outro_video_dur = get_video_duration(outro_video)
                 outro_fade_dur = float(outro_config.get("fade_duration", 1.0))
         except Exception as e:
@@ -201,8 +206,8 @@ def apply_audio_to_video(input_video, audio_path, config, output_video):
                 with open(outro_config_path, "r", encoding="utf-8") as f:
                     outro_config_r = json.load(f)
                 if outro_config_r.get("enabled", False):
-                    o_video = outro_config_r.get("outro_video_path")
-                    if o_video and os.path.exists(o_video):
+                    o_video = resolve_asset_path(outro_config_r.get("outro_video_path"))
+                    if o_video:
                         o_dur = get_video_duration(o_video)
                         o_fade = float(outro_config_r.get("fade_duration", 1.0))
                         if o_dur > 0:
@@ -393,21 +398,22 @@ def apply_audio_to_video(input_video, audio_path, config, output_video):
 def process_all_videos(source_folder, audio_config, output_folder):
     """
     Applies the configured audio background to all mp4 videos in the source_folder.
+    Returns the number of videos processed (0 when skipped/failed).
     """
-    audio_path = audio_config.get("audio_file_path")
+    audio_path = resolve_asset_path(audio_config.get("audio_file_path"))
     source_volume_factor, source_volume_percent = get_source_volume_factor(audio_config)
     bgm_enabled = bool(audio_config.get("enabled", False))
-    has_bgm_audio = bgm_enabled and bool(audio_path and os.path.exists(audio_path))
+    has_bgm_audio = bgm_enabled and bool(audio_path)
 
     # Check outro_music
     outro_music_cfg = audio_config.get("outro_music", {})
     outro_music_enabled = bool(outro_music_cfg.get("enabled", False))
-    outro_music_path = outro_music_cfg.get("audio_file_path", "")
-    has_outro_music = outro_music_enabled and bool(outro_music_path and os.path.exists(outro_music_path))
+    outro_music_path = resolve_asset_path(outro_music_cfg.get("audio_file_path", ""))
+    has_outro_music = outro_music_enabled and bool(outro_music_path)
 
     if not has_bgm_audio and not has_outro_music and abs(source_volume_factor - 1.0) <= 0.0001:
         print("No valid BGM configured, no Outro Music, and source video volume is at 100%. Skipping audio process.")
-        return
+        return 0
 
     if bgm_enabled and not has_bgm_audio and audio_path:
         print(f"Configured BGM file was not found: {audio_path}. Applying only source video volume / outro music.")
@@ -445,5 +451,6 @@ def process_all_videos(source_folder, audio_config, output_folder):
         shutil.rmtree(temp_dir)
     except:
         pass
-        
+
     print(f"Audio Overlay process completed. Applied to {processed_count} videos.")
+    return processed_count

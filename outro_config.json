@@ -1,7 +1,7 @@
 {
     "enabled": true,
-    "outro_video_path": "C:\\Users\\Levi\\Desktop\\ViralCutterBETA\\WEBUI_ASSETS\\outro\\Instagram_Reel_1780278124_30d0d842.mp4",
-    "overlay_image_path": "C:\\Users\\Levi\\Desktop\\ViralCutterBETA\\WEBUI_ASSETS\\outro\\ChatGPT_Image_31_de_mai__de_2026__16_36_28_1780259317_d058d3a1.png",
+    "outro_video_path": "WEBUI_ASSETS/outro/Instagram_Reel_1780278124_30d0d842.mp4",
+    "overlay_image_path": "WEBUI_ASSETS/outro/ChatGPT_Image_31_de_mai__de_2026__16_36_28_1780259317_d058d3a1.png",
     "position_x": 179,
     "position_y": 886,
     "scale": 42,

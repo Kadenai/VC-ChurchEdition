@@ -15,3 +15,6 @@ test_vid_no_audio.mp4
 .env
 .env.*
 !.env.example
+
+# Contém a chave de API do usuário — nunca versionar (use api_config.example.json)
+api_config.json

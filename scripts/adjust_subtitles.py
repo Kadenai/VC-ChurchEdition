@@ -246,7 +246,9 @@ def adjust(base_color, base_size, highlight_size, highlight_color, words_per_blo
         raise FileNotFoundError(f"Subtitle folder missing at {input_dir}. Ensure transcription completed successfully.")
 
     for filename in os.listdir(input_dir):
-        if filename.endswith(".json"):
+        # Pula os backups criados pelo "Corrigir com IA" (*.original.json):
+        # gerar .ass deles desperdiça tempo e pode queimar a legenda errada.
+        if filename.endswith(".json") and not filename.endswith(".original.json"):
             input_path = os.path.join(input_dir, filename)
             output_filename = os.path.splitext(filename)[0] + ".ass"
             output_path = os.path.join(output_dir, output_filename)

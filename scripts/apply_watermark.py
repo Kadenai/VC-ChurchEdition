@@ -4,6 +4,11 @@ import shutil
 import tempfile
 
 try:
+    from scripts.asset_paths import resolve_asset_path
+except ImportError:
+    from asset_paths import resolve_asset_path
+
+try:
     from scripts.edit_video import get_best_encoder
 except ImportError:
     def get_best_encoder():
@@ -74,12 +79,13 @@ def apply_watermark_to_video(input_video, image_path, x, y, scale, opacity, outp
 def process_all_videos(source_folder, watermark_config, output_folder):
     """
     Applies the configured watermark to all mp4 videos in the source_folder.
+    Returns the number of videos processed (0 when skipped/failed).
     """
-    image_path = watermark_config.get("watermark_image_path")
-    if not image_path or not os.path.exists(image_path):
+    image_path = resolve_asset_path(watermark_config.get("watermark_image_path"))
+    if not image_path:
         print("Watermark image path not configured or not found. Skipping watermark.")
-        return
-        
+        return 0
+
     print(f"Applying Watermark to all videos in {source_folder}...")
     
     x = watermark_config.get("position_x", 480)
@@ -112,5 +118,6 @@ def process_all_videos(source_folder, watermark_config, output_folder):
         shutil.rmtree(temp_dir)
     except:
         pass
-        
+
     print(f"Watermark process completed. Applied to {processed_count} videos.")
+    return processed_count

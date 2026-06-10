@@ -124,21 +124,22 @@ def _source_volume(audio_cfg):
 def compute_enabled_features(root_dir):
     """
     Espelha as condições de aplicação de render_specific_video / main_improved:
-    o conjunto de efeitos que um render do zero embutiria AGORA, com base apenas
-    nas flags `enabled` (a música de encerramento exige o vídeo de outro ativo).
+    o conjunto de efeitos que um render do zero embutiria AGORA. Além da flag
+    `enabled`, o arquivo do asset precisa existir — um efeito ativado mas sem
+    arquivo é pulado pelos scripts e NÃO pode ser registrado como embutido.
     """
     wm = _read_json(root_dir, "watermark_config.json")
     outro = _read_json(root_dir, "outro_config.json")
     audio = _read_json(root_dir, "audio_config.json")
     om = audio.get("outro_music", {}) if isinstance(audio.get("outro_music"), dict) else {}
 
-    outro_on = bool(outro.get("enabled", False))
+    outro_on = bool(outro.get("enabled", False)) and _path_exists(root_dir, outro.get("outro_video_path"))
     return {
         "subtitles": True,
-        "watermark": bool(wm.get("enabled", False)),
+        "watermark": bool(wm.get("enabled", False)) and _path_exists(root_dir, wm.get("watermark_image_path")),
         "outro": outro_on,
-        "audio_bgm": bool(audio.get("enabled", False)),
-        "outro_music": bool(om.get("enabled", False)) and outro_on,
+        "audio_bgm": bool(audio.get("enabled", False)) and _path_exists(root_dir, audio.get("audio_file_path")),
+        "outro_music": bool(om.get("enabled", False)) and _path_exists(root_dir, om.get("audio_file_path")) and outro_on,
         "source_volume": abs(_source_volume(audio) - 100.0) > 0.001,
     }
 
