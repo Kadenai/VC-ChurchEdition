@@ -1,10 +1,10 @@
 {
     "enabled": true,
     "outro_video_path": "WEBUI_ASSETS/outro/Instagram_Reel_1780278124_30d0d842.mp4",
-    "overlay_image_path": "WEBUI_ASSETS/outro/ChatGPT_Image_31_de_mai__de_2026__16_36_28_1780259317_d058d3a1.png",
+    "overlay_image_path": "WEBUI_ASSETS/outro/Generated_Image_June_13__2026_-_3_14PM_1781400679_4b7e3c15.jpg",
     "position_x": 179,
     "position_y": 886,
-    "scale": 42,
+    "scale": 53,
     "fade_duration": 1,
     "rounded_corners": 10,
     "outro_volume": 100

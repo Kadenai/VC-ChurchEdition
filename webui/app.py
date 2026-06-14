@@ -6,6 +6,8 @@ import json
 import psutil
 import shutil
 import datetime
+import html
+import random
 import time
 import urllib.parse
 from fastapi import FastAPI
@@ -21,6 +23,10 @@ import outro_handler # Module for Outro/Ending Logic
 import watermark_handler # Module for Watermark Logic
 import audio_handler # Module for Audio Overlay Logic
 import original_volume_handler # Module for original source volume preview
+try:
+    from media_utils import extract_file_path, resolve_existing_path
+except ImportError:
+    from webui.media_utils import extract_file_path, resolve_existing_path
 
 # Path to the main script
 MAIN_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "main_improved.py")
@@ -51,6 +57,85 @@ def _ensure_dir(path):
 
 _ensure_dir(VIRALS_DIR)
 _ensure_dir(MODELS_DIR)
+
+
+def _running_in_colab():
+    return bool(os.environ.get("COLAB_RELEASE_TAG")) or os.path.isdir("/content")
+
+
+def _link_colab_persistent_configs():
+    """Keep user settings and uploaded assets on Drive in Colab."""
+    if not _running_in_colab():
+        return
+
+    real_virals = os.path.realpath(VIRALS_DIR)
+    if not os.path.isdir(real_virals):
+        return
+
+    config_dir = os.path.join(real_virals, "_configuracoes")
+    os.makedirs(config_dir, exist_ok=True)
+
+    assets_remote = os.path.join(real_virals, "_webui_assets")
+    try:
+        if os.path.isdir(WEBUI_ASSETS_DIR) and not os.path.islink(WEBUI_ASSETS_DIR):
+            shutil.copytree(WEBUI_ASSETS_DIR, assets_remote, dirs_exist_ok=True)
+        else:
+            os.makedirs(assets_remote, exist_ok=True)
+
+        if os.path.islink(WEBUI_ASSETS_DIR):
+            current_target = os.path.realpath(WEBUI_ASSETS_DIR)
+            if os.path.abspath(current_target) != os.path.abspath(assets_remote):
+                os.unlink(WEBUI_ASSETS_DIR)
+        elif os.path.isdir(WEBUI_ASSETS_DIR):
+            shutil.rmtree(WEBUI_ASSETS_DIR)
+
+        if not os.path.exists(WEBUI_ASSETS_DIR):
+            try:
+                os.symlink(assets_remote, WEBUI_ASSETS_DIR)
+            except OSError:
+                if os.path.isdir(assets_remote) and not os.path.exists(WEBUI_ASSETS_DIR):
+                    shutil.copytree(assets_remote, WEBUI_ASSETS_DIR, dirs_exist_ok=True)
+                raise
+    except OSError as e:
+        print(f"[AVISO] Nao foi possivel vincular WEBUI_ASSETS ao Drive: {e}")
+
+    config_files = [
+        "api_config.json",
+        "watermark_config.json",
+        "outro_config.json",
+        "audio_config.json",
+        "ui_settings.json",
+        "temp_subtitle_config.json",
+    ]
+
+    for name in config_files:
+        local = os.path.join(WORKING_DIR, name)
+        remote = os.path.join(config_dir, name)
+
+        if not os.path.exists(remote):
+            if os.path.isfile(local) and not os.path.islink(local):
+                shutil.copy2(local, remote)
+            elif name == "api_config.json":
+                with open(remote, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "selected_api": "gemini",
+                        "gemini": {
+                            "api_key": "",
+                            "model": "gemini-3.5-flash",
+                            "chunk_size": 70000,
+                        },
+                    }, f, indent=4)
+
+        if os.path.exists(remote) and not os.path.isdir(local):
+            try:
+                if os.path.islink(local) or os.path.exists(local):
+                    os.remove(local)
+                os.symlink(remote, local)
+            except OSError as e:
+                print(f"[AVISO] Nao foi possivel vincular {name} ao Drive: {e}")
+
+
+_link_colab_persistent_configs()
 
 ALLOWED_DIRS = [
     os.path.abspath(VIRALS_DIR),
@@ -128,7 +213,7 @@ GEMINI_MODELS = [
 # Subtitle logic moved to subtitle_handler.py
 
 
-def _tail_log(text, max_lines=600, max_chars=60000):
+def _tail_log(text, max_lines=220, max_chars=22000):
     """Devolve só a cauda do log para enviar ao navegador.
 
     Em jobs longos o stdout do whisperx/ffmpeg vira centenas de KB. Mandar o
@@ -146,6 +231,252 @@ def _tail_log(text, max_lines=600, max_chars=60000):
     if len(lines) > max_lines:
         return "\n".join(lines[-max_lines:])
     return text
+
+
+LOG_STREAM_INTERVAL_SECONDS = 3.0
+
+PROCESSING_MESSAGES = [
+    "Identificando melhores momentos...",
+    "Analisando as Escrituras...",
+    "Imitando os Bereianos...",
+    "Garimpando o trecho que prende a atenção...",
+    "Conferindo o contexto antes do corte...",
+    "Separando ouro de ruído...",
+    "Procurando frases que cabem no Reels...",
+    "Lapidando legendas para a tela pequena...",
+    "Montando cortes com começo, meio e graça...",
+    "Buscando aquele momento compartilhável...",
+    "Ajustando o ritmo sem perder a mensagem...",
+    "Preparando tudo para sair redondinho...",
+    "Checando se o gancho chega chegando...",
+    "Organizando os clipes com calma e propósito...",
+    "Fazendo o sermão virar cortes úteis...",
+    "Procurando o melhor gancho do sermão...",
+    "Conferindo se o corte tem começo forte...",
+    "Separando uma mensagem boa para edificar o feed...",
+    "Ouvindo com atenção pastoral...",
+    "Cuidando para o contexto não sair do lugar...",
+    "Ajustando o corte sem atropelar a mensagem...",
+    "Peneirando frases com potencial de abençoar alguém...",
+    "Marcando momentos que merecem replay...",
+    "Organizando os trechos como quem prepara a liturgia...",
+    "Buscando clareza, impacto e fidelidade ao conteúdo...",
+    "Deixando o vídeo pronto para a missão digital...",
+    "Selecionando partes que podem alcançar mais gente...",
+    "Dando uma lapidada santa nas legendas...",
+    "Separando pão quentinho para as redes...",
+    "Procurando o amém visual do corte...",
+    "Checando se a mensagem fica clara sem o vídeo inteiro...",
+    "Preparando um corte que dá vontade de enviar no grupo...",
+    "Fazendo o trecho caber no tempo sem perder a unção...",
+    "Ajustando cada segundo com zelo e carinho...",
+    "Buscando frases que apontam para Cristo...",
+    "Organizando tudo para servir melhor a igreja...",
+    "Cuidando da legenda para ninguém perder a frase boa...",
+    "Procurando o momento em que a mensagem acende...",
+    "Tirando excesso sem tirar essência...",
+    "Conferindo se o corte segue edificante...",
+    "Dando ritmo de short sem pressa no coração...",
+    "Preparando o material para evangelizar no scroll...",
+    "Chamando os melhores trechos para a frente...",
+    "Ajustando a cadência da fala nas legendas...",
+    "Cuidando para o corte terminar no lugar certo...",
+    "Buscando um trecho que pare o polegar no feed...",
+    "Fazendo revisão de contexto, estilo Bereia...",
+    "Separando o que é forte, claro e compartilhável...",
+    "Montando o corte com zelo de equipe de mídia...",
+    "Deixando as legendas legíveis para todo mundo...",
+    "Procurando aquele trecho que vira conversa depois do culto...",
+    "Ajustando áudio, imagem e mensagem para caminharem juntos...",
+    "Preparando cortes para fortalecer a comunicação da igreja...",
+    "Cuidando dos detalhes enquanto você pode respirar um pouco...",
+    "Verificando se a ideia principal aparece rápido...",
+    "Organizando o sermão em pequenos convites de atenção...",
+    "Selecionando trechos com verdade e boa retenção...",
+    "Polindo o conteúdo sem mexer na essência...",
+    "Transformando minutos preciosos em cortes certeiros...",
+    "Preparando tudo para a igreja postar com tranquilidade...",
+    "Alinhando legendas, cortes e propósito...",
+    "Separando momentos que podem tocar alguém hoje...",
+    "Fazendo a parte técnica trabalhar em silêncio...",
+    "Mantendo a mensagem no centro do corte...",
+    "Quase lá: ainda cuidando dos detalhes finais...",
+    "Conferindo o corte com amor pela sã doutrina...",
+    "Deixando a mensagem clara, simples e confessional...",
+    "Separando um trecho com cheiro de púlpito fiel...",
+    "Organizando tudo com decência e boa ordem...",
+    "Buscando um recorte que honre o texto bíblico...",
+    "Mantendo a Escritura acima do algoritmo...",
+    "Lapidando sem transformar sermão em entretenimento vazio...",
+    "Procurando um trecho que sirva à igreja, não só ao feed...",
+    "Cuidando para a graça continuar no centro...",
+    "Separando conteúdo com convicção reformada...",
+    "Conferindo se a aplicação ficou bem amarrada ao texto...",
+    "Transformando o sermão em corte sem perder reverência...",
+    "Ajustando o ritmo com zelo e sobriedade...",
+    "Buscando clareza sem diluir a mensagem...",
+    "Deixando o corte pronto para edificar os santos...",
+    "Preparando um trecho para fortalecer a fé no meio da semana...",
+    "Cortando com cuidado de quem ama boa teologia...",
+    "Mantendo o foco na Palavra, não no barulho...",
+    "Selecionando frases que apontam para a suficiência das Escrituras...",
+    "Polindo detalhes com espírito de catecismo...",
+    "Separando uma pequena porção de doutrina boa...",
+    "Cuidando para a legenda não tropeçar na teologia...",
+    "Buscando um momento que ajude a igreja a lembrar da graça...",
+    "Ajustando o corte com zelo pastoral e técnico...",
+    "Procurando um trecho que faça sentido fora do culto inteiro...",
+    "Mantendo a soberania de Deus no centro da narrativa...",
+    "Preparando cortes com reverência e boa comunicação...",
+    "Separando uma frase que poderia virar anotação de sermão...",
+    "Checando se o recorte preserva o argumento do pregador...",
+    "Dando forma curta a uma verdade antiga...",
+    "Cuidando para a edição servir à mensagem...",
+    "Buscando impacto sem apelar para sensacionalismo...",
+    "Lapidando uma verdade bíblica para o formato vertical...",
+    "Organizando o corte como quem prepara ordem de culto...",
+    "Separando trechos com sabor de sola Scriptura...",
+    "Conferindo se o trecho permanece fiel ao contexto...",
+    "Deixando o clipe pronto para uma igreja que pensa...",
+    "Preparando material para discipulado no feed...",
+    "Buscando frases que ajudem a família da fé...",
+    "Ajustando segundos com paciência presbiteriana...",
+    "Cuidando do corte com zelo confessional...",
+    "Separando momentos de lei, graça e aplicação...",
+    "Mantendo a edição debaixo da Palavra...",
+    "Preparando um corte digno do mural da igreja...",
+    "Procurando o trecho que explica bem antes de emocionar...",
+    "Deixando a teologia respirar dentro do formato curto...",
+    "Selecionando uma frase com peso de boa doutrina...",
+    "Cuidando para o gancho não roubar o evangelho...",
+    "Ajustando a legenda para servir quem assiste sem som...",
+    "Separando pequenos convites à leitura bíblica...",
+    "Buscando clareza para quem caiu de paraquedas no vídeo...",
+    "Polindo o corte como quem revisa boletim dominical...",
+    "Preparando o conteúdo para ser útil, não só bonito...",
+    "Guardando o contexto como um bom bereiano faria...",
+    "Selecionando trechos com verdade, beleza e sobriedade...",
+    "Deixando o sermão viajar sem perder o endereço bíblico...",
+    "Ajustando tudo com um olho no texto e outro na timeline...",
+    "Separando uma porção curta de alimento sólido...",
+    "Mantendo a graça comum até na renderização...",
+    "Procurando momentos que ajudem a igreja a perseverar...",
+    "Cuidando para o corte soar como igreja, não como trend vazia...",
+    "Preparando legendas que respeitam a cadência do pregador...",
+    "Buscando um trecho bom para enviar no grupo de estudo...",
+    "Ajustando o vídeo com zelo de ministério de mídia...",
+    "Separando algo que combine com domingo e segunda-feira...",
+    "Conferindo se a chamada combina com a mensagem...",
+    "Mantendo o tom reverente sem ficar engessado...",
+    "Transformando o sermão em ponte para novas conversas...",
+    "Buscando um recorte que una verdade e clareza...",
+    "Deixando o conteúdo pronto para servir a comunidade da aliança...",
+    "Preparando um pequeno eco da pregação para a semana...",
+    "Cortando sem cortar a linha de raciocínio...",
+    "Cuidando para a estética obedecer ao conteúdo...",
+    "Separando tesouros antigos em embalagem de hoje...",
+    "Ajustando o corte com calma sabática...",
+    "Buscando o trecho que deixa a doutrina mais memorável...",
+    "Mantendo Cristo no centro, inclusive no thumbnail mental...",
+    "Preparando cortes para uma comunicação reformada e bonita...",
+    "Selecionando frases que lembram graça, fé e arrependimento...",
+    "Deixando o vídeo pronto para edificar sem gritar...",
+    "Organizando a mensagem para caber no feed sem encolher a verdade...",
+    "Procurando uma aplicação que chegue mansa e firme...",
+    "Cuidando para cada corte ter começo honesto e final claro...",
+    "Polindo uma pequena janela para a pregação inteira...",
+    "Separando conteúdo que ajuda a igreja a confessar melhor...",
+    "Ajustando tudo com zelo, ordem e um cafezinho imaginário...",
+    "Buscando o trecho que aponta para o Deus soberano...",
+    "Mantendo a edição discreta para a Palavra aparecer...",
+    "Preparando um corte que poderia sair depois da Escola Dominical...",
+    "Conferindo se a frase sustenta o peso fora do contexto longo...",
+    "Deixando a mensagem compartilhável sem virar rasa...",
+    "Selecionando trechos com coração pastoral e cabeça reformada...",
+    "Ajustando o corte como quem afina o coral antes do culto...",
+    "Separando um momento que ajude alguém a voltar para a Bíblia...",
+    "Cuidando para a tecnologia servir ao Reino com sobriedade...",
+    "Preparando clipes com teologia robusta e legenda legível...",
+    "Buscando a frase que dá vontade de abrir a Bíblia...",
+    "Mantendo a beleza a serviço da verdade...",
+    "Cortando com cuidado, porque contexto também é mordomia...",
+    "Organizando tudo para comunicar graça com clareza...",
+    "Separando uma pequena janela para a grande história da redenção...",
+    "Ajustando a edição para não competir com o conteúdo...",
+    "Preparando o vídeo com aquele toque de ordem reformada...",
+    "Buscando um momento que seja fiel, útil e compartilhável...",
+    "Deixando o corte pronto para sair em paz no feed da igreja...",
+]
+
+KEEP_TAB_OPEN_NOTE = "Mantenha esta aba aberta, mas não precisa ficar aqui esperando."
+
+
+def _stage_title(text):
+    return f"{text}. {KEEP_TAB_OPEN_NOTE}"
+
+
+def _processing_status_html(kind="running", title=None, message=None, messages=None):
+    icon_map = {
+        "running": "sparkles",
+        "done": "check",
+        "error": "alert-triangle",
+        "manual": "edit",
+    }
+    rotating_messages = []
+    if kind == "running":
+        rotating_messages = list(messages if messages is not None else PROCESSING_MESSAGES)
+        random.shuffle(rotating_messages)
+
+    default_title = {
+        "running": _stage_title("Gerando seus cortes"),
+        "done": "Pronto! Seus cortes estão na tela.",
+        "error": "Algo deu errado.",
+        "manual": "Revisão manual pronta.",
+    }.get(kind, _stage_title("Gerando seus cortes"))
+    default_message = {
+        "running": rotating_messages[0] if rotating_messages else PROCESSING_MESSAGES[0],
+        "done": "Pode revisar, baixar ou ajustar as legendas agora.",
+        "error": 'Abra "Ver detalhes técnicos" para ver o log.',
+        "manual": "Confira o prompt e continue quando estiver tudo certo.",
+    }.get(kind, "")
+
+    title = html.escape(title or default_title)
+    message = html.escape(message or default_message)
+    data_messages = html.escape(json.dumps(rotating_messages, ensure_ascii=False), quote=True)
+    rotating_attr = f' data-rotating="1" data-messages="{data_messages}" data-message-index="0"' if rotating_messages else ""
+    spinner = '<span class="vc-processing-spinner" aria-hidden="true"></span>' if kind == "running" else ""
+    try:
+        status_icon = icon(icon_map.get(kind, "sparkles"), 20)
+    except Exception:
+        status_icon = ""
+
+    return (
+        f'<div class="vc-processing-status is-{kind}"{rotating_attr}>'
+        f'<div class="vc-processing-mark">{spinner}<span class="vc-processing-icon">{status_icon}</span></div>'
+        f'<div class="vc-processing-copy">'
+        f'<div class="vc-processing-title">{title}</div>'
+        f'<div class="vc-processing-message">{message}</div>'
+        f'</div></div>'
+    )
+
+
+def _infer_processing_status(logs, tick=0):
+    tail = (logs or "")[-8000:].lower()
+    title = _stage_title("Gerando seus cortes")
+    if any(term in tail for term in ("frame=", "ffmpeg", "render", "renderizando", "editing", "editando")):
+        title = _stage_title("Renderizando os cortes")
+    elif any(term in tail for term in ("legenda", "subtitle", "ass", "srt")):
+        title = _stage_title("Preparando legendas")
+    elif any(term in tail for term in ("cortando", "cutting", "segmento", "segment")):
+        title = _stage_title("Cortando os melhores trechos")
+    elif any(term in tail for term in ("viral", "gemini", "analisando", "analyz")):
+        title = _stage_title("Escolhendo os melhores momentos")
+    elif any(term in tail for term in ("transcre", "transcrib", "whisper")):
+        title = _stage_title("Transcrevendo o áudio")
+    elif any(term in tail for term in ("download", "baixando", "yt-dlp")):
+        title = _stage_title("Baixando o vídeo")
+
+    return _processing_status_html("running", title=title, messages=PROCESSING_MESSAGES)
 
 
 def run_viral_cutter(input_source, project_name, url, video_file, segments, viral, themes, min_duration, max_duration, ai_duration, model, manual_mode, api_key, ai_model_name, chunk_size, workflow,
@@ -172,7 +503,12 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
         "video_quality": video_quality, "use_youtube_subs": use_youtube_subs,
         "segments": segments, "viral": viral, "themes": themes, "min_duration": min_duration, "max_duration": max_duration, "ai_duration": ai_duration,
         "model": model, "manual_mode": manual_mode, "ai_model_name": ai_model_name, "chunk_size": chunk_size, "workflow": workflow,
-        "margin_h": margin_h
+        "font_name": font_name, "font_size": font_size, "font_color": font_color, "highlight_color": highlight_color,
+        "outline_color": outline_color, "outline_thickness": outline_thickness, "shadow_color": shadow_color,
+        "shadow_size": shadow_size, "is_bold": is_bold, "is_italic": is_italic, "is_uppercase": is_uppercase,
+        "vertical_pos": vertical_pos, "margin_h": margin_h, "alignment": alignment,
+        "h_size": h_size, "w_block": w_block, "gap": gap, "mode": mode,
+        "under": under, "strike": strike, "border_s": border_s, "remove_punc": remove_punc,
     }
     try:
         with open(os.path.join(WORKING_DIR, "ui_settings.json"), "w", encoding="utf-8") as f:
@@ -182,7 +518,7 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
     save_api_key(api_key)
     # ---------------------
 
-    yield "", gr.update(value=i18n("Gerando..."), interactive=False), gr.update(visible=True), None, gr.update(visible=False), None
+    yield "", gr.update(value=i18n("Gerando..."), interactive=False), gr.update(visible=True), _processing_status_html("running"), "", gr.update(visible=False), None
 
     cmd = [sys.executable, MAIN_SCRIPT_PATH]
     cmd.extend(["--language", "pt"])
@@ -190,17 +526,22 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
     # Input Source Logic
     if input_source == "Existing Project":
         if not project_name:
-             yield i18n("Error: No project selected."), gr.update(value=i18n("Gerar meus cortes"), interactive=True), gr.update(visible=False), None, gr.update(visible=False), None
+             yield i18n("Error: No project selected."), gr.update(value=i18n("Gerar meus cortes"), interactive=True), gr.update(visible=False), _processing_status_html("error", "Escolha um projeto antes de gerar."), "", gr.update(visible=False), None
              return
         full_project_path = os.path.join(VIRALS_DIR, project_name)
         cmd.extend(["--project-path", full_project_path])
     elif input_source == "Upload Video":
         if not video_file:
-             yield i18n("Error: No video file uploaded."), gr.update(value=i18n("Gerar meus cortes"), interactive=True), gr.update(visible=False), None, gr.update(visible=False), None
+             yield i18n("Error: No video file uploaded."), gr.update(value=i18n("Gerar meus cortes"), interactive=True), gr.update(visible=False), _processing_status_html("error", "Envie um vídeo antes de gerar."), "", gr.update(visible=False), None
+             return
+
+        video_file_path = resolve_existing_path(extract_file_path(video_file))
+        if not video_file_path:
+             yield i18n("Error: Uploaded video file could not be found."), gr.update(value=i18n("Gerar meus cortes"), interactive=True), gr.update(visible=False), _processing_status_html("error", "Não encontrei o vídeo enviado."), "", gr.update(visible=False), None
              return
         
         # Determine project name from filename
-        original_filename = os.path.basename(video_file)
+        original_filename = os.path.basename(video_file_path)
         name_no_ext = os.path.splitext(original_filename)[0]
         # Sanitize: Allow alphanumeric, space, dash, underscore
         safe_name = "".join([c for c in name_no_ext if c.isalnum() or c in " _-"]).strip()
@@ -214,7 +555,7 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
         os.makedirs(project_path, exist_ok=True)
         
         target_path = os.path.join(project_path, "input.mp4")
-        shutil.copy(video_file, target_path)
+        shutil.copy(video_file_path, target_path)
         
         cmd.extend(["--project-path", project_path])
         # Skip YouTube subs as it is a local upload
@@ -309,17 +650,18 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
         except Exception as e:
             print(f"Warning: failed to write temp subtitle config: {e}")
     
+    logs = ""
+    project_folder_path = None
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     try:
         current_process = subprocess.Popen(cmd, cwd=WORKING_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True, env=env)
-        logs = ""
-        project_folder_path = None
         if input_source == "Existing Project" and project_name:
              # If using existing project, we already know the path, but let's see if logs confirm it
              project_folder_path = os.path.join(VIRALS_DIR, project_name)
 
         last_update_time = time.time()
+        status_tick = 1
         
         while True:
             line = current_process.stdout.readline()
@@ -337,15 +679,14 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
                 # fora de foco (senão a galeria, que vem no último yield, só
                 # aparecia depois dos logs terminarem de rolar).
                 current_time = time.time()
-                if current_time - last_update_time > 0.5:
-                    yield _tail_log(logs), gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(visible=False), None
+                if current_time - last_update_time > LOG_STREAM_INTERVAL_SECONDS:
+                    yield _tail_log(logs, max_lines=120, max_chars=14000), gr.update(visible=True, interactive=False), gr.update(visible=True), _infer_processing_status(logs, status_tick), gr.update(), gr.update(visible=False), None
                     last_update_time = current_time
+                    status_tick += 1
 
-        # Final yield to ensure all logs are shown
-        yield _tail_log(logs), gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(visible=False), None
     except Exception as e:
         logs += f"\nError running process: {str(e)}\n"
-        yield _tail_log(logs), gr.update(visible=True, interactive=False), gr.update(visible=True), None, gr.update(), gr.update()
+        yield _tail_log(logs), gr.update(value=i18n("Gerar meus cortes"), interactive=True), gr.update(visible=False), _processing_status_html("error"), gr.update(), gr.update(), gr.update()
     finally:
         if current_process:
             if current_process.stdout:
@@ -375,15 +716,17 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
                       prompt_content = f.read()
             except: prompt_content = "Erro lendo prompt_full.txt. Acesse a pasta do projeto."
             
-        yield _tail_log(logs), gr.update(value=i18n("Gerar meus cortes"), interactive=True), gr.update(visible=False), None, gr.update(visible=True), prompt_content
+        yield _tail_log(logs), gr.update(value=i18n("Gerar meus cortes"), interactive=True), gr.update(visible=False), _processing_status_html("manual"), "", gr.update(visible=True), prompt_content
         return
 
     html_output = ""
+    status_output = _processing_status_html("done")
     if project_folder_path and os.path.exists(project_folder_path):
         html_output = library.generate_project_gallery(project_folder_path, is_full_path=True)
     else:
         html_output = f"<h3>{i18n('Error: Project folder could not be determined from logs.')}</h3>"
-    yield _tail_log(logs), gr.update(value=i18n("Gerar meus cortes"), interactive=True), gr.update(visible=False), html_output, gr.update(visible=False), None
+        status_output = _processing_status_html("error", "Não encontrei a pasta do projeto.", "Os detalhes técnicos podem ajudar a localizar onde o processo parou.")
+    yield _tail_log(logs), gr.update(value=i18n("Gerar meus cortes"), interactive=True), gr.update(visible=False), status_output, html_output, gr.update(visible=False), None
 
 # Tema e estilos da marca (Church Edition) — paleta esmeralda + branco.
 import styles
@@ -444,14 +787,35 @@ DEFAULT_UI_SETTINGS = {
     "viral": True,
     "themes": "",
     "min_duration": 60,
-    "max_duration": 120,
-    "ai_duration": False,
+    "max_duration": 100,
+    "ai_duration": True,
     "model": "large-v3-turbo",
     "manual_mode": False,
     "ai_model_name": GEMINI_MODELS[0],
     "chunk_size": 70000,
     "workflow": "Full",
+    "font_name": "Montserrat",
+    "font_size": 30,
+    "font_color": "#FFFFFF",
+    "highlight_color": "#FFFFFF",
+    "outline_color": "#000000",
+    "outline_thickness": 1,
+    "shadow_color": "#000000",
+    "shadow_size": 1,
+    "is_bold": True,
+    "is_italic": False,
+    "is_uppercase": False,
+    "vertical_pos": 140,
     "margin_h": 35,
+    "alignment": 2,
+    "h_size": 30,
+    "w_block": 4,
+    "gap": 0.6,
+    "mode": "no_highlight",
+    "under": False,
+    "strike": False,
+    "border_s": 1,
+    "remove_punc": False,
 }
 
 def load_ui_state():
@@ -469,15 +833,41 @@ def load_ui_state():
 
 def save_ui_settings_live(video_quality, use_youtube_subs, segments, viral, themes,
                           min_duration, max_duration, ai_duration, model, manual_mode,
-                          ai_model_name, chunk_size, workflow, margin_h):
+                          ai_model_name, chunk_size, workflow, margin_h, **extra):
     """Salva ao vivo o que o usuário mudou — vira o novo padrão na próxima abertura."""
-    data = {
+    data = load_ui_state()
+    data.update({
         "video_quality": video_quality, "use_youtube_subs": use_youtube_subs,
         "segments": segments, "viral": viral, "themes": themes,
         "min_duration": min_duration, "max_duration": max_duration, "ai_duration": ai_duration,
         "model": model, "manual_mode": manual_mode, "ai_model_name": ai_model_name,
         "chunk_size": chunk_size, "workflow": workflow, "margin_h": margin_h,
-    }
+    })
+    data.update(extra)
+    try:
+        with open(UI_SETTINGS_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+    except Exception:
+        pass
+    return ""
+
+
+def save_subtitle_settings_live(font_name, font_size, font_color, highlight_color,
+                                outline_color, outline_thickness, shadow_color, shadow_size,
+                                is_bold, is_italic, is_uppercase, h_size, w_block,
+                                gap, mode, under, strike, border_s, vertical_pos,
+                                margin_h, alignment, remove_punc):
+    data = load_ui_state()
+    data.update({
+        "font_name": font_name, "font_size": font_size, "font_color": font_color,
+        "highlight_color": highlight_color, "outline_color": outline_color,
+        "outline_thickness": outline_thickness, "shadow_color": shadow_color,
+        "shadow_size": shadow_size, "is_bold": is_bold, "is_italic": is_italic,
+        "is_uppercase": is_uppercase, "h_size": h_size, "w_block": w_block,
+        "gap": gap, "mode": mode, "under": under, "strike": strike,
+        "border_s": border_s, "vertical_pos": vertical_pos,
+        "margin_h": margin_h, "alignment": alignment, "remove_punc": remove_punc,
+    })
     try:
         with open(UI_SETTINGS_PATH, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4)
@@ -604,7 +994,7 @@ def _audio_assets_from_state(saved_audio, saved_outro_music):
 _global_js = """
 (async () => {
     const st = document.createElement('style');
-    st.textContent = '@keyframes vc-spin{to{transform:rotate(360deg)}}.vc-spin{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:2px solid rgba(70,160,133,0.25);border-top-color:#46A085;border-radius:50%;animation:vc-spin .8s linear infinite}.vc-ok{color:#46A085!important;transform:scale(1.3);transition:all .3s}.vc-err{color:#E11D48!important;transform:scale(1.3);transition:all .3s}';
+    st.textContent = '@keyframes vc-spin{to{transform:rotate(360deg)}}.vc-spin{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:2px solid rgba(70,160,133,0.25);border-top-color:#46A085;border-radius:50%;animation:vc-spin .8s linear infinite}.vc-ok{color:#46A085!important;transform:scale(1.3);transition:all .3s}.vc-err{color:#E11D48!important;transform:scale(1.3);transition:all .3s}.apply-feature-btn:not(.applied):hover{filter:brightness(1.12)}.apply-feature-btn.applied:hover{background:#DC2626!important;color:#fff!important;border-color:#DC2626!important;cursor:pointer!important;filter:none!important}.apply-feature-btn .vc-feature-icon-remove{display:none}.apply-feature-btn.applied:hover .vc-feature-icon-current{display:none}.apply-feature-btn.applied:hover .vc-feature-icon-remove{display:inline-flex}';
     document.head.appendChild(st);
     const vcIconPaths = {
         alert: '<path d="m21.7 18.9-8.5-15a1.4 1.4 0 0 0-2.4 0l-8.5 15A1.4 1.4 0 0 0 3.5 21h17a1.4 1.4 0 0 0 1.2-2.1Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path>',
@@ -622,6 +1012,7 @@ _global_js = """
         music: '<path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle>',
         palette: '<circle cx="13.5" cy="6.5" r=".5"></circle><circle cx="17.5" cy="10.5" r=".5"></circle><circle cx="8.5" cy="7.5" r=".5"></circle><circle cx="6.5" cy="12.5" r=".5"></circle><path d="M12 22a10 10 0 1 1 10-10c0 3-2 4-4 4h-1.5a2.5 2.5 0 0 0 0 5H12Z"></path>',
         play: '<path d="m8 5 11 7-11 7Z"></path>',
+        plus: '<path d="M12 5v14"></path><path d="M5 12h14"></path>',
         refresh: '<path d="M21 12a9 9 0 0 1-15.4 6.4L3 16"></path><path d="M3 21v-5h5"></path><path d="M3 12A9 9 0 0 1 18.4 5.6L21 8"></path><path d="M21 3v5h-5"></path>',
         rotate: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5"></path>',
         save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"></path><path d="M17 21v-8H7v8"></path><path d="M7 3v5h8"></path>',
@@ -643,6 +1034,27 @@ _global_js = """
     // Exposto globalmente: o JS do status amigável (logs_output.change) roda em
     // outro escopo e precisa enxergar vcIcon — sem isso o status nunca aparece.
     window.vcIcon = vcIcon;
+    function vcTickProcessingStatus() {
+        document.querySelectorAll('.vc-processing-status[data-rotating="1"]').forEach((card) => {
+            const msgEl = card.querySelector('.vc-processing-message');
+            if (!msgEl) return;
+            let messages = [];
+            try { messages = JSON.parse(card.dataset.messages || '[]'); } catch (e) {}
+            if (!messages || messages.length < 2) return;
+            const now = Date.now();
+            const last = Number(card.dataset.lastRotation || '0');
+            if (now - last < 2600) return;
+            const nextIndex = (Number(card.dataset.messageIndex || '0') + 1) % messages.length;
+            card.dataset.lastRotation = String(now);
+            card.dataset.messageIndex = String(nextIndex);
+            msgEl.style.opacity = '0';
+            window.setTimeout(() => {
+                msgEl.textContent = messages[nextIndex];
+                msgEl.style.opacity = '1';
+            }, 140);
+        });
+    }
+    window.setInterval(vcTickProcessingStatus, 700);
     function vcApplyTheme(theme) {
         const next = theme === 'dark' ? 'dark' : 'light';
         document.documentElement.setAttribute('data-vc-theme', next);
@@ -719,21 +1131,62 @@ _global_js = """
     setTimeout(vcDecorateTextIcons, 500);
     setTimeout(vcDecorateTextIcons, 1500);
     setTimeout(vcDecorateTextIcons, 3000);
+    const VC_BUFFER_BASE_SECONDS = 5;
+    const VC_BUFFER_LIMIT_SECONDS = 600;
+    function vcBufferValue(value) {
+        const parsed = parseInt(value, 10);
+        if (!Number.isFinite(parsed)) return 0;
+        return Math.max(-VC_BUFFER_LIMIT_SECONDS, Math.min(VC_BUFFER_LIMIT_SECONDS, parsed));
+    }
+    window.vcUpdateBufferSaldo = function(input) {
+        if (!input) return;
+        const value = vcBufferValue(input.value);
+        const row = input.parentElement;
+        if (!row) return;
+        const target = input.classList.contains('buffer-start-input') ? '.saldo-start' : '.saldo-end';
+        const saldo = row.querySelector(target);
+        if (saldo) saldo.textContent = '(saldo: ' + (VC_BUFFER_BASE_SECONDS - value) + 's)';
+    };
+    window.vcClampBufferInput = function(input) {
+        if (!input) return;
+        const raw = String(input.value || '').trim();
+        if (raw === '' || raw === '-') return;
+        input.value = vcBufferValue(input.value);
+        window.vcUpdateBufferSaldo(input);
+    };
+    function vcCacheBust(src) {
+        if (!src) return src;
+        try {
+            const u = new URL(src, window.location.href);
+            u.searchParams.set('t', String(Date.now()));
+            if (u.origin === window.location.origin) return u.pathname + u.search + u.hash;
+            return u.href;
+        } catch (e) {
+            const base = String(src).split('?')[0];
+            return base + '?t=' + Date.now();
+        }
+    }
     // Helper: reload the <video> tag in a card so the new burned subtitle is visible.
-    function vcReloadVideoInCard(cardEl) {
+    function vcReloadVideoInCard(cardEl, explicitSrc, downloadName) {
         if (!cardEl) return;
         const v = cardEl.querySelector('video');
         if (!v) return;
         const srcEl = v.querySelector('source');
         const srcFromSource = srcEl ? (srcEl.getAttribute('src') || srcEl.src || '') : '';
-        const baseSrc = (v.currentSrc || srcFromSource || v.getAttribute('src') || '').split('?')[0];
+        const baseSrc = (explicitSrc || v.currentSrc || srcFromSource || v.getAttribute('src') || '').split('?')[0];
         if (!baseSrc) return;
-        const nextSrc = baseSrc + '?t=' + Date.now();
+        const nextSrc = vcCacheBust(baseSrc);
         if (srcEl) {
             srcEl.src = nextSrc;
+            srcEl.setAttribute('src', nextSrc);
             v.removeAttribute('src');
         } else {
             v.src = nextSrc;
+        }
+        const download = cardEl.querySelector('a[download]');
+        if (download) {
+            download.href = nextSrc;
+            if (downloadName) download.setAttribute('download', downloadName);
         }
         v.load();
     }
@@ -762,7 +1215,7 @@ _global_js = """
                 // Find the card container and reload its video
                 let card = btn.closest('.viral-card') || btn.parentElement;
                 while (card && !card.querySelector('video')) card = card.parentElement;
-                vcReloadVideoInCard(card);
+                vcReloadVideoInCard(card, d.video_url, d.download_name);
                 setTimeout(() => { btn.innerHTML = oh; btn.style.color = oc; btn.style.pointerEvents = ''; btn.classList.remove('vc-ok'); btn._vcL = false; }, 2500);
             } else {
                 console.warn('Polish failed:', d.error);
@@ -799,8 +1252,16 @@ _global_js = """
             const d = await r.json();
             if (d.success) {
                 btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg><span>' + (d.polished || 0) + '/' + (d.total || 0) + ' corrigidas</span>';
-                // Reload every video in the gallery
-                document.querySelectorAll('.viral-card').forEach(c => vcReloadVideoInCard(c));
+                // Reload every video that was rendered with its exact new URL.
+                const rendered = new Map();
+                (d.results || []).forEach((item) => {
+                    if (item && item.success && item.segment !== undefined) rendered.set(String(item.segment), item);
+                });
+                document.querySelectorAll('.viral-card').forEach((c, idx) => {
+                    const key = c.getAttribute('data-segment') || String(idx);
+                    const item = rendered.get(key);
+                    vcReloadVideoInCard(c, item && item.video_url, item && item.download_name);
+                });
                 setTimeout(() => { btn.innerHTML = oh; btn.style.pointerEvents = ''; btn.style.opacity = '1'; btn._vcL = false; }, 4000);
             } else {
                 console.warn('Polish all failed:', d.error);
@@ -831,8 +1292,8 @@ _global_js = """
         const endInput = document.getElementById(endId);
         if (!startInput || !endInput) return;
 
-        const bufStart = Math.max(0, Math.min(5, parseInt(startInput.value) || 0));
-        const bufEnd = Math.max(0, Math.min(5, parseInt(endInput.value) || 0));
+        const bufStart = vcBufferValue(startInput.value);
+        const bufEnd = vcBufferValue(endInput.value);
 
         btn._vcL = true;
         const oh = btn.innerHTML;
@@ -842,15 +1303,19 @@ _global_js = """
         startInput.disabled = true;
         endInput.disabled = true;
         try {
-            const r = await fetch('/adjust_buffer_api?project=' + project + '&segment=' + segment + '&buffer_start=' + bufStart + '&buffer_end=' + bufEnd);
+            const r = await fetch('/adjust_buffer_api?project=' + project + '&segment=' + encodeURIComponent(segment) + '&buffer_start=' + encodeURIComponent(bufStart) + '&buffer_end=' + encodeURIComponent(bufEnd));
             const d = await r.json();
             if (d.success) {
                 btn.innerHTML = vcIcon('check', 16) + '<span>Pronto!</span>';
                 btn.classList.add('vc-ok');
+                if (d.buffer_start_used !== undefined) startInput.value = d.buffer_start_used;
+                if (d.buffer_end_used !== undefined) endInput.value = d.buffer_end_used;
+                window.vcUpdateBufferSaldo(startInput);
+                window.vcUpdateBufferSaldo(endInput);
                 // Reload video
                 let card = btn.closest('.viral-card') || btn.parentElement;
                 while (card && !card.querySelector('video')) card = card.parentElement;
-                vcReloadVideoInCard(card);
+                vcReloadVideoInCard(card, d.video_url, d.download_name);
                 setTimeout(() => { btn.innerHTML = oh; btn.classList.remove('vc-ok'); btn.style.pointerEvents = ''; btn.style.opacity = '1'; btn._vcL = false; startInput.disabled = false; endInput.disabled = false; }, 2500);
             } else {
                 console.warn('Buffer reprocess failed:', d.error);
@@ -867,32 +1332,93 @@ _global_js = """
         }
     }, true);
 
+    function vcEscapeHtml(text) {
+        return String(text || '').replace(/[&<>"']/g, (ch) => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        }[ch]));
+    }
+
+    function vcSetFeatureButtonState(btn, applied) {
+        if (!btn) return;
+        const label = btn.getAttribute('data-label') || 'Recurso';
+        const safeLabel = vcEscapeHtml(label);
+        const accent = btn.getAttribute('data-accent') || '#3b82f6';
+        btn.disabled = false;
+        btn.style.display = 'inline-flex';
+        btn.style.alignItems = 'center';
+        btn.style.gap = '5px';
+        btn.style.padding = '5px 9px';
+        btn.style.fontSize = '11.5px';
+        btn.style.fontWeight = '600';
+        btn.style.fontFamily = 'sans-serif';
+        btn.style.opacity = '1';
+        btn.style.pointerEvents = '';
+        btn.style.filter = 'none';
+        btn.style.transition = 'background .2s,color .2s,border-color .2s,filter .2s';
+        if (applied) {
+            btn.classList.add('applied');
+            btn.style.background = '#E2E8F0';
+            btn.style.color = '#94A3B8';
+            btn.style.border = '1px solid #CBD5E1';
+            btn.style.borderRadius = '8px';
+            btn.style.cursor = 'pointer';
+            btn.title = btn.getAttribute('data-remove-title') || ('Remover ' + label + ' deste corte');
+            btn.innerHTML = '<span class="vc-feature-icon-current">' + vcIcon('check', 14) + '</span><span class="vc-feature-icon-remove">' + vcIcon('x', 14) + '</span><span class="vc-feature-label">' + safeLabel + '</span>';
+        } else {
+            btn.classList.remove('applied');
+            btn.style.background = accent;
+            btn.style.color = '#fff';
+            btn.style.border = 'none';
+            btn.style.borderRadius = '7px';
+            btn.style.cursor = 'pointer';
+            btn.title = btn.getAttribute('data-apply-title') || ('Aplicar ' + label);
+            btn.innerHTML = vcIcon('plus', 14) + '<span class="vc-feature-label">' + safeLabel + '</span>';
+        }
+    }
+
+    function vcSyncFeatureButtons(card, features) {
+        if (!card || !features) return;
+        card.querySelectorAll('.apply-feature-btn[data-feature]').forEach((featureBtn) => {
+            const key = featureBtn.getAttribute('data-feature') || '';
+            vcSetFeatureButtonState(featureBtn, !!features[key]);
+        });
+    }
+
     // Aplicar um recurso desativável (marca d'água/outro/áudio/música) a UM corte.
     document.body.addEventListener("click", async (e) => {
         const btn = e.target.closest('.apply-feature-btn');
         if (!btn) return;
         e.preventDefault();
         e.stopPropagation();
-        if (btn._vcL || btn.classList.contains('applied')) return;
+        if (btn._vcL) return;
         const feature = btn.getAttribute('data-feature') || '';
         const project = btn.getAttribute('data-project') || '';
         const segment = btn.getAttribute('data-segment') || '';
         const label = btn.getAttribute('data-label') || '';
+        const isRemoval = btn.classList.contains('applied');
+        const action = isRemoval ? 'remove' : 'apply';
         if (!feature || !project || segment === '') return;
         btn._vcL = true;
         const oh = btn.innerHTML;
         const origBg = btn.style.background;
+        const origColor = btn.style.color;
+        const origBorder = btn.style.border;
+        const origCursor = btn.style.cursor;
         const origTitle = btn.title;
         btn.style.pointerEvents = 'none';
         btn.style.opacity = '0.85';
-        btn.innerHTML = '<div class="vc-spin" style="width:15px;height:15px;border-width:2px"></div><span>Aplicando…</span>';
+        btn.innerHTML = '<div class="vc-spin" style="width:15px;height:15px;border-width:2px"></div><span>' + (isRemoval ? 'Removendo...' : 'Aplicando...') + '</span>';
         try {
-            const r = await fetch('/apply_feature_api?project=' + project + '&segment=' + encodeURIComponent(segment) + '&feature=' + encodeURIComponent(feature));
+            const r = await fetch('/apply_feature_api?project=' + project + '&segment=' + encodeURIComponent(segment) + '&feature=' + encodeURIComponent(feature) + '&action=' + encodeURIComponent(action));
             const d = await r.json();
             if (d.success) {
                 let card = btn.closest('.viral-card') || btn.parentElement;
                 while (card && !card.querySelector('video')) card = card.parentElement;
-                vcReloadVideoInCard(card);
+                vcReloadVideoInCard(card, d.video_url, d.download_name);
                 // Estado "já aplicado": botão fica cinza/desativado.
                 btn.classList.add('applied');
                 btn.disabled = true;
@@ -905,6 +1431,13 @@ _global_js = """
                 btn.style.filter = 'none';
                 btn.title = 'Já aplicado neste corte';
                 btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg><span>' + (label || 'Aplicado') + '</span>';
+                if (d.features) {
+                    vcSyncFeatureButtons(card, d.features);
+                } else {
+                    vcSetFeatureButtonState(btn, !isRemoval);
+                }
+                btn.style.pointerEvents = '';
+                btn.style.opacity = '1';
                 btn._vcL = false;
             } else {
                 console.warn('Aplicar recurso falhou:', d.error);
@@ -912,14 +1445,14 @@ _global_js = """
                 btn.style.background = '#E11D48';
                 btn.style.color = '#fff';
                 btn.title = 'Erro: ' + (d.error || 'falhou');
-                setTimeout(() => { btn.innerHTML = oh; btn.style.background = origBg; btn.style.pointerEvents = ''; btn.style.opacity = '1'; btn.title = origTitle; btn._vcL = false; }, 3500);
+                setTimeout(() => { btn.innerHTML = oh; btn.style.background = origBg; btn.style.color = origColor; btn.style.border = origBorder; btn.style.cursor = origCursor; btn.style.pointerEvents = ''; btn.style.opacity = '1'; btn.title = origTitle; btn._vcL = false; }, 3500);
             }
         } catch (err) {
             console.warn('Aplicar recurso erro:', err);
             btn.innerHTML = vcIcon('x', 14) + '<span>Erro</span>';
             btn.style.background = '#7f1d1d';
             btn.style.color = '#fff';
-            setTimeout(() => { btn.innerHTML = oh; btn.style.background = origBg; btn.style.pointerEvents = ''; btn.style.opacity = '1'; btn.title = origTitle; btn._vcL = false; }, 3500);
+            setTimeout(() => { btn.innerHTML = oh; btn.style.background = origBg; btn.style.color = origColor; btn.style.border = origBorder; btn.style.cursor = origCursor; btn.style.pointerEvents = ''; btn.style.opacity = '1'; btn.title = origTitle; btn._vcL = false; }, 3500);
         }
     }, true);
 })();
@@ -1160,6 +1693,12 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition")) as demo:
                 # Auto-update PREVIEW HTML on any change
                 for inp in manual_inputs:
                     inp.change(subs.generate_preview_html, inputs=manual_inputs, outputs=preview_html)
+
+                gr.on(
+                    triggers=[c.change for c in manual_inputs],
+                    fn=save_subtitle_settings_live, inputs=manual_inputs, outputs=None,
+                    queue=False, show_progress="hidden",
+                )
                 
                 # Render video button
                 preview_vid_btn.click(
@@ -1213,7 +1752,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition")) as demo:
              with gr.Row():
                  restore_defaults_btn = gr.Button(i18n("Restaurar configurações padrão"), variant="secondary", size="sm", scale=1)
              restore_defaults_btn.click(restore_default_settings, outputs=_settings_components, queue=False, show_progress="hidden")
-             friendly_status = gr.HTML('<div id="vc_status"></div>')
+             friendly_status = gr.HTML("")
              with gr.Accordion(i18n("Ver detalhes técnicos"), open=False):
                  logs_output = gr.Textbox(label=i18n("Registro do processamento"), lines=18, max_lines=18, autoscroll=True, elem_id="logs_output")
              stop_btn.click(kill_process, outputs=[logs_output])
@@ -1309,7 +1848,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition")) as demo:
                  highlight_size_input, words_per_block_input, gap_limit_input, mode_input,
                  underline_input, strikeout_input, border_style_input, remove_punc_input,
                  video_quality_input, use_youtube_subs_input
-             ], outputs=[logs_output, start_btn, stop_btn, results_html, manual_review_group, manual_review_prompt])
+             ], outputs=[logs_output, start_btn, stop_btn, friendly_status, results_html, manual_review_group, manual_review_prompt])
 
 
         with gr.Tab(i18n("Identidade da Igreja")):
@@ -1946,6 +2485,47 @@ if __name__ == "__main__":
             except Exception:
                 return None, None
 
+        def _segment_index_from_json(json_path):
+            base = os.path.basename(json_path)
+            match = re.search(r"^(\d+)_", base) or re.search(r"output(\d+)", base)
+            return int(match.group(1)) if match else None
+
+        def _video_url_for_path(path):
+            if not path or not os.path.exists(path):
+                return None
+            abs_video = os.path.abspath(path)
+            abs_virals = os.path.abspath(VIRALS_DIR)
+            if not (abs_video == abs_virals or abs_video.startswith(abs_virals + os.sep)):
+                return None
+            rel_path = os.path.relpath(abs_video, abs_virals).replace("\\", "/")
+            return f"/virals/{urllib.parse.quote(rel_path, safe='/')}?t={int(time.time() * 1000)}"
+
+        def _rendered_video_for_json(project_folder, json_path):
+            base_name = os.path.splitext(os.path.basename(json_path))[0]
+            candidates = [
+                os.path.join(project_folder, "burned_sub", f"{base_name}_subtitled.mp4"),
+            ]
+            if base_name.endswith("_processed"):
+                candidates.append(
+                    os.path.join(project_folder, "burned_sub", f"{base_name.replace('_processed', '')}_subtitled.mp4")
+                )
+            existing = [p for p in candidates if os.path.exists(p)]
+            if not existing:
+                return None
+            try:
+                return max(existing, key=lambda p: os.path.getmtime(p))
+            except OSError:
+                return existing[0]
+
+        def _video_payload(path):
+            url = _video_url_for_path(path)
+            if not url:
+                return {}
+            return {
+                "video_url": url,
+                "download_name": os.path.basename(path),
+            }
+
         def _polish_and_rerender(project_folder, json_path):
             """Polish one subtitle JSON and re-burn the corresponding video.
             Returns a dict with success/error."""
@@ -1970,11 +2550,14 @@ if __name__ == "__main__":
                     "total": polish_result.get("total"),
                 }
 
+            rendered_video = _rendered_video_for_json(project_folder, json_path)
             return {
                 "success": True,
                 "applied": polish_result.get("applied"),
                 "total": polish_result.get("total"),
                 "render": render_msg,
+                "segment": _segment_index_from_json(json_path),
+                **_video_payload(rendered_video),
             }
 
         @fastapi_app.get("/polish_segment_api")
@@ -2016,6 +2599,9 @@ if __name__ == "__main__":
                         "error": r.get("error"),
                         "applied": r.get("applied"),
                         "total": r.get("total"),
+                        "segment": r.get("segment"),
+                        "video_url": r.get("video_url"),
+                        "download_name": r.get("download_name"),
                     })
                 ok = sum(1 for r in results if r["success"])
                 return {
@@ -2029,13 +2615,13 @@ if __name__ == "__main__":
 
         @fastapi_app.get("/adjust_buffer_api")
         def adjust_buffer_api(project: str, segment: int, buffer_start: int, buffer_end: int):
-            """Re-cut a segment with independent start/end buffer margins (0–5 seconds each)."""
+            """Re-cut a segment with signed start/end adjustments."""
             try:
                 import subprocess as sp
 
-                # Validate buffer ranges
-                buffer_start = max(0, min(5, buffer_start))
-                buffer_end = max(0, min(5, buffer_end))
+                adjust_limit = 600
+                buffer_start = max(-adjust_limit, min(adjust_limit, int(buffer_start)))
+                buffer_end = max(-adjust_limit, min(adjust_limit, int(buffer_end)))
 
                 safe_project = os.path.basename(project)
                 project_path = os.path.join(VIRALS_DIR, safe_project)
@@ -2061,22 +2647,18 @@ if __name__ == "__main__":
                 original_end = seg.get("original_end_time")
                 if original_start is None or original_end is None:
                     return {"success": False, "error": "Segment missing original_start_time/original_end_time. Re-process the project first."}
+                try:
+                    original_start = float(original_start)
+                    original_end = float(original_end)
+                except (TypeError, ValueError):
+                    return {"success": False, "error": "Invalid original_start_time/original_end_time values."}
 
                 # Calculate new buffered times (independent start/end)
                 new_start = max(0, original_start - buffer_start)
                 new_end = original_end + buffer_end
                 new_duration = new_end - new_start
-
-                # Update segment in JSON
-                seg["start_time"] = new_start
-                seg["end_time"] = new_end
-                seg["duration"] = new_duration
-                seg["buffer_start_used"] = buffer_start
-                seg["buffer_end_used"] = buffer_end
-
-                # Save updated JSON
-                with open(json_path, "w", encoding="utf-8") as f:
-                    json.dump(segments_data, f, ensure_ascii=False, indent=2)
+                if new_duration <= 0.05:
+                    return {"success": False, "error": "Ajuste inválido: o corte ficaria sem duração."}
 
                 # 2. Re-cut the raw video from input.mp4
                 input_video = os.path.join(project_path, "input.mp4")
@@ -2154,9 +2736,9 @@ if __name__ == "__main__":
                             os.remove(final_target)
                         os.rename(generated_final, final_target)
                     else:
-                        print(f"[BUFFER] Re-crop não gerou {generated_final}; render pode usar fonte antiga.")
+                        return {"success": False, "error": f"Re-crop did not generate {os.path.basename(generated_final)}."}
                 except Exception as crop_err:
-                    print(f"[BUFFER] Re-crop falhou (non-fatal): {crop_err}")
+                    return {"success": False, "error": f"Re-crop failed: {crop_err}"}
 
                 # 3. Re-cut subtitle JSON
                 input_json_path = os.path.join(project_path, "input.json")
@@ -2175,15 +2757,32 @@ if __name__ == "__main__":
                         render_msg = render_specific_video(json_output_path)
                         print(f"[BUFFER] Re-render result: {render_msg}")
                     except Exception as render_err:
-                        print(f"[BUFFER] Re-render failed (non-fatal): {render_err}")
-                        # Non-fatal: raw video was already re-cut
+                        return {"success": False, "error": f"Re-render failed: {render_err}"}
+                    if not (isinstance(render_msg, str) and render_msg.strip().lower().startswith("success")):
+                        return {"success": False, "error": render_msg or "Re-render failed."}
+
+                seg["start_time"] = new_start
+                seg["end_time"] = new_end
+                seg["duration"] = new_duration
+                seg["buffer_start_used"] = buffer_start
+                seg["buffer_end_used"] = buffer_end
+
+                with open(json_path, "w", encoding="utf-8") as f:
+                    json.dump(segments_data, f, ensure_ascii=False, indent=2)
+
+                rendered_video = _rendered_video_for_json(project_path, json_output_path)
+                if not rendered_video:
+                    rendered_video = final_target if os.path.exists(final_target) else output_video
 
                 return {
                     "success": True,
                     "message": f"Buffer adjusted: start={buffer_start}s, end={buffer_end}s",
                     "new_start": round(new_start, 3),
                     "new_end": round(new_end, 3),
-                    "new_duration": round(new_duration, 3)
+                    "new_duration": round(new_duration, 3),
+                    "buffer_start_used": buffer_start,
+                    "buffer_end_used": buffer_end,
+                    **_video_payload(rendered_video),
                 }
 
             except Exception as e:
@@ -2192,12 +2791,16 @@ if __name__ == "__main__":
                 return {"success": False, "error": str(e)}
 
         @fastapi_app.get("/apply_feature_api")
-        def apply_feature_api(project: str, segment: int, feature: str):
+        def apply_feature_api(project: str, segment: int, feature: str, action: str = "apply"):
             """Aplica um recurso desativável (watermark/outro/audio_bgm/outro_music) a UM
             corte, re-renderizando do zero a partir da fonte limpa (reaplica o recurso +
             tudo que estiver ativado, sem empilhar). Reusa render_specific_video, que também
             atualiza o render_state.json do corte (cinza = já aplicado)."""
             try:
+                action = (action or "apply").strip().lower()
+                if action not in {"apply", "remove"}:
+                    return {"success": False, "error": f"Acao invalida: {action}"}
+
                 valid = {"watermark", "outro", "audio_bgm", "outro_music"}
                 if feature not in valid:
                     return {"success": False, "error": f"Recurso inválido: {feature}"}
@@ -2212,9 +2815,10 @@ if __name__ == "__main__":
                     import render_state
                 except ImportError:
                     from webui import render_state
-                ok, reason = render_state.feature_enabled_and_configured(WORKING_DIR, feature)
-                if not ok:
-                    return {"success": False, "error": reason}
+                if action == "apply":
+                    ok, reason = render_state.feature_enabled_and_configured(WORKING_DIR, feature)
+                    if not ok:
+                        return {"success": False, "error": reason}
 
                 # Localizar o JSON de legenda deste segmento.
                 from scripts.polish_segment_subs import find_segment_json
@@ -2222,11 +2826,41 @@ if __name__ == "__main__":
                 if not json_path:
                     return {"success": False, "error": f"Sem JSON de legenda para o segmento {segment}."}
 
-                # Re-render do zero (aplica o recurso + tudo ativado e grava o estado).
+                current_features = render_state.get_segment_features(project_path, segment)
+                enabled_now = render_state.compute_enabled_features(WORKING_DIR)
+                target_features = {
+                    "subtitles": True,
+                    "watermark": bool(current_features.get("watermark", False)),
+                    "outro": bool(current_features.get("outro", False)),
+                    "audio_bgm": bool(current_features.get("audio_bgm", False)),
+                    "outro_music": bool(current_features.get("outro_music", False)),
+                    "source_volume": bool(current_features.get("source_volume", False)),
+                }
+
+                if action == "apply":
+                    target_features[feature] = True
+                    if feature == "outro_music":
+                        target_features["outro"] = True
+                    if feature in {"audio_bgm", "outro_music"} and enabled_now.get("source_volume", False):
+                        target_features["source_volume"] = True
+                else:
+                    target_features[feature] = False
+                    if feature == "outro":
+                        target_features["outro_music"] = False
+
+                if target_features.get("outro_music", False) and not target_features.get("outro", False):
+                    target_features["outro_music"] = False
+
+                for key in ("watermark", "outro", "audio_bgm", "outro_music", "source_volume"):
+                    target_features[key] = bool(target_features.get(key, False)) and bool(enabled_now.get(key, False))
+
+                # Re-render do zero com o conjunto desejado para este corte.
                 from subtitle_editor import render_specific_video
-                msg = render_specific_video(json_path)
+                msg = render_specific_video(json_path, feature_overrides=target_features)
                 if isinstance(msg, str) and msg.strip().lower().startswith("success"):
-                    return {"success": True, "message": msg}
+                    rendered_video = _rendered_video_for_json(project_path, json_path)
+                    features = render_state.get_segment_features(project_path, segment)
+                    return {"success": True, "message": msg, "features": features, **_video_payload(rendered_video)}
                 return {"success": False, "error": msg or "Falha ao renderizar."}
             except Exception as e:
                 import traceback

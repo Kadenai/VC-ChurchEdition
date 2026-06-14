@@ -60,6 +60,31 @@ def get_source_volume_factor(config):
     source_video_volume = max(0.0, min(200.0, source_video_volume))
     return source_video_volume / 100.0, source_video_volume
 
+
+def get_outro_sync_info(config):
+    if bool(config.get("_vc_disable_outro_sync", False)):
+        return False, 0.0, 1.0
+
+    outro_config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "outro_config.json")
+    outro_video_dur = 0.0
+    outro_fade_dur = 1.0
+    outro_enabled = False
+
+    if os.path.exists(outro_config_path):
+        try:
+            with open(outro_config_path, "r", encoding="utf-8") as f:
+                outro_config = json.load(f)
+            if outro_config.get("enabled", False):
+                outro_enabled = True
+                outro_video = resolve_asset_path(outro_config.get("outro_video_path"))
+                if outro_video:
+                    outro_video_dur = get_video_duration(outro_video)
+                outro_fade_dur = float(outro_config.get("fade_duration", 1.0))
+        except Exception as e:
+            print(f"Error reading outro config for audio sync: {e}")
+
+    return outro_enabled, outro_video_dur, outro_fade_dur
+
 def build_volume_expression(video_dur, base_volume, ending_active, ending_vol, ending_start, crossfade_duration):
     """
     Builds an FFmpeg expression for varying volume over time.
@@ -164,23 +189,7 @@ def apply_audio_to_video(input_video, audio_path, config, output_video):
     actual_audio_dur = video_dur
 
     # --- Read Outro video config for sync ---
-    outro_config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "outro_config.json")
-    outro_video_dur = 0.0
-    outro_fade_dur = 1.0
-    outro_enabled = False
-
-    if os.path.exists(outro_config_path):
-        try:
-            with open(outro_config_path, "r", encoding="utf-8") as f:
-                outro_config = json.load(f)
-            if outro_config.get("enabled", False):
-                outro_enabled = True
-                outro_video = resolve_asset_path(outro_config.get("outro_video_path"))
-                if outro_video:
-                    outro_video_dur = get_video_duration(outro_video)
-                outro_fade_dur = float(outro_config.get("fade_duration", 1.0))
-        except Exception as e:
-            print(f"Error reading outro config for audio sync: {e}")
+    outro_enabled, outro_video_dur, outro_fade_dur = get_outro_sync_info(config)
 
     # Calculate the transition point where Outro begins
     # total = main + outro - fade  →  transition_point = total - outro_dur
@@ -201,24 +210,13 @@ def apply_audio_to_video(input_video, audio_path, config, output_video):
         use_bgm_ending_volume_override = False
     elif has_bgm_audio:
         # Original BGM logic (no outro_music)
-        if os.path.exists(outro_config_path):
-            try:
-                with open(outro_config_path, "r", encoding="utf-8") as f:
-                    outro_config_r = json.load(f)
-                if outro_config_r.get("enabled", False):
-                    o_video = resolve_asset_path(outro_config_r.get("outro_video_path"))
-                    if o_video:
-                        o_dur = get_video_duration(o_video)
-                        o_fade = float(outro_config_r.get("fade_duration", 1.0))
-                        if o_dur > 0:
-                            if stop_before_outro:
-                                actual_audio_dur = max(0.1, video_dur - o_dur)
-                                use_ending_volume = False
-                            elif use_ending_volume and sync_with_outro:
-                                ending_start_time = o_dur
-                                crossfade = o_fade
-            except Exception as e:
-                print(f"Error reading outro config for audio sync: {e}")
+        if outro_enabled and outro_video_dur > 0:
+            if stop_before_outro:
+                actual_audio_dur = max(0.1, video_dur - outro_video_dur)
+                use_ending_volume = False
+            elif use_ending_volume and sync_with_outro:
+                ending_start_time = outro_video_dur
+                crossfade = outro_fade_dur
         bgm_end = actual_audio_dur
         bgm_fade_out_start = max(0, video_dur - fade_out)
         bgm_fade_out_dur = fade_out

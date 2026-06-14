@@ -14,13 +14,25 @@ def extract_file_path(file_obj):
         return None
     if isinstance(file_obj, str):
         return file_obj
+    if isinstance(file_obj, dict):
+        for key in ("path", "name"):
+            value = file_obj.get(key)
+            if value:
+                return value
+        data = file_obj.get("data")
+        if data:
+            return extract_file_path(data)
+    if hasattr(file_obj, "path"):
+        return file_obj.path
     if hasattr(file_obj, "name"):
         return file_obj.name
+    if hasattr(file_obj, "model_dump"):
+        try:
+            return extract_file_path(file_obj.model_dump())
+        except Exception:
+            pass
     if isinstance(file_obj, list) and file_obj:
-        first = file_obj[0]
-        if hasattr(first, "name"):
-            return first.name
-        return str(first)
+        return extract_file_path(file_obj[0])
     return str(file_obj)
 
 
@@ -81,8 +93,13 @@ def persist_uploaded_file(file_obj, category):
 
     source_abs = os.path.abspath(source_path)
     target_dir_abs = os.path.abspath(target_dir)
+    source_real = os.path.realpath(source_path)
+    target_dir_real = os.path.realpath(target_dir)
 
-    if source_abs.startswith(target_dir_abs + os.sep) or source_abs == target_dir_abs:
+    if (
+        source_abs.startswith(target_dir_abs + os.sep) or source_abs == target_dir_abs or
+        source_real.startswith(target_dir_real + os.sep) or source_real == target_dir_real
+    ):
         return source_abs
 
     safe_base, ext = _sanitize_name(os.path.basename(source_abs))
@@ -106,7 +123,13 @@ def delete_asset_file(path):
     try:
         abs_path = os.path.abspath(path)
         assets_abs = os.path.abspath(ASSETS_ROOT)
-        if not abs_path.startswith(assets_abs + os.sep):
+        real_path = os.path.realpath(path)
+        assets_real = os.path.realpath(ASSETS_ROOT)
+        inside_assets = (
+            abs_path.startswith(assets_abs + os.sep) or
+            real_path.startswith(assets_real + os.sep)
+        )
+        if not inside_assets:
             return False
         if os.path.isfile(abs_path):
             os.remove(abs_path)
@@ -126,8 +149,9 @@ def persist_replacing(file_obj, category, previous_path):
     if not persisted:
         return None, False
     deleted = False
-    if previous_path and os.path.abspath(persisted) != os.path.abspath(previous_path):
-        deleted = delete_asset_file(previous_path)
+    previous_resolved = resolve_existing_path(previous_path)
+    if previous_resolved and os.path.abspath(persisted) != os.path.abspath(previous_resolved):
+        deleted = delete_asset_file(previous_resolved)
     return os.path.abspath(persisted), deleted
 
 

@@ -36,10 +36,13 @@ VIRALS_DIR = os.path.join(BASE_DIR, "VIRALS")
 # Ela nunca deve aparecer como "projeto" nem entrar na limpeza.
 from scripts.export_paths import CORTES_IPB_NAME, is_colab
 
+PROTECTED_VIRALS_NAMES = {CORTES_IPB_NAME, "_configuracoes", "_webui_assets"}
+
 
 # URL Mode: "fastapi" (default) or "gradio"
 URL_MODE = "fastapi"
 GALLERY_MAX_CARDS = None
+PYCACHE_CLEANUP_THRESHOLD_BYTES = 256 * 1024 * 1024
 
 
 def _video_notice_html(message):
@@ -72,7 +75,7 @@ def get_existing_projects():
             for entry in entries:
                 if not entry.is_dir(follow_symlinks=True):
                     continue
-                if entry.name == CORTES_IPB_NAME:
+                if entry.name in PROTECTED_VIRALS_NAMES:
                     continue
                 try:
                     modified = entry.stat(follow_symlinks=True).st_mtime
@@ -87,6 +90,86 @@ def get_existing_projects():
 def refresh_projects():
     projs = get_existing_projects()
     return gr.update(choices=projs, value=None)
+
+
+def _safe_segment_base_name(index, seg):
+    title = seg.get("title", f"{i18n('Segment')} {index + 1}")
+    safe_title = "".join([c for c in title if c.isalnum() or c in " _-"]).strip()
+    safe_title = safe_title.replace(" ", "_")[:60]
+    return f"{index:03d}_{safe_title}" if safe_title else f"{index:03d}_Segment_{index}"
+
+
+def _newest_existing(paths):
+    existing = [p for p in paths if p and os.path.exists(p)]
+    if not existing:
+        return None
+    try:
+        return max(existing, key=lambda p: os.path.getmtime(p))
+    except OSError:
+        return existing[0]
+
+
+def _find_segment_video(project_folder_path, index, seg):
+    idx_str = f"{index:03d}"
+    base_name = _safe_segment_base_name(index, seg)
+
+    raw_path = seg.get("filepath", None)
+    if raw_path:
+        candidates = [raw_path]
+        if not os.path.isabs(raw_path):
+            candidates.append(os.path.join(project_folder_path, raw_path))
+        found = _newest_existing(candidates)
+        if found:
+            return found
+
+    if isinstance(seg.get("filename"), str):
+        found = _newest_existing([
+            os.path.join(project_folder_path, "burned_sub", seg["filename"]),
+            os.path.join(project_folder_path, seg["filename"]),
+        ])
+        if found:
+            return found
+
+    search_groups = [
+        [
+            os.path.join(project_folder_path, "burned_sub", f"{base_name}_processed_subtitled.mp4"),
+            os.path.join(project_folder_path, "burned_sub", f"{base_name}_subtitled.mp4"),
+            os.path.join(project_folder_path, "burned_sub", f"final-output{idx_str}_processed_subtitled.mp4"),
+            os.path.join(project_folder_path, "burned_sub", f"output{idx_str}.mp4"),
+        ],
+        [
+            os.path.join(project_folder_path, "final", f"{base_name}.mp4"),
+            os.path.join(project_folder_path, "final", f"final-output{idx_str}_processed.mp4"),
+            os.path.join(project_folder_path, f"final-output{idx_str}_processed.mp4"),
+        ],
+        [
+            os.path.join(project_folder_path, "cuts", f"{base_name}_original_scale.mp4"),
+            os.path.join(project_folder_path, f"output{idx_str}_original_scale.mp4"),
+            os.path.join(project_folder_path, f"output{idx_str}.mp4"),
+            os.path.join(project_folder_path, "cuts", f"output{idx_str}_original_scale.mp4"),
+            os.path.join(project_folder_path, "cuts", f"segment_{idx_str}.mp4"),
+            os.path.join(project_folder_path, "cuts", f"{idx_str}.mp4"),
+        ],
+    ]
+    for candidates in search_groups:
+        found = _newest_existing(candidates)
+        if found:
+            return found
+
+    for folder_name in ("burned_sub", "final", "cuts"):
+        folder = os.path.join(project_folder_path, folder_name)
+        if not os.path.isdir(folder):
+            continue
+        candidates = [
+            os.path.join(folder, f)
+            for f in os.listdir(folder)
+            if f.endswith(".mp4") and (f.startswith(f"{idx_str}_") or f"output{idx_str}" in f)
+        ]
+        found = _newest_existing(candidates)
+        if found:
+            return found
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +226,7 @@ def get_garbage_targets():
     #    que no Colab guarda os vídeos finais do usuário no Drive)
     if os.path.isdir(VIRALS_DIR):
         for name in sorted(os.listdir(VIRALS_DIR)):
-            if name == CORTES_IPB_NAME:
+            if name in PROTECTED_VIRALS_NAMES:
                 continue
             targets.append(os.path.join(VIRALS_DIR, name))
     # 2) Vídeos de teste/saída e temporários soltos na raiz
@@ -157,10 +240,11 @@ def get_garbage_targets():
     if os.path.isdir(preview_dir):
         for name in sorted(os.listdir(preview_dir)):
             targets.append(os.path.join(preview_dir, name))
-    # 4) Caches __pycache__ do projeto (nunca os do .venv)
+    # 4) Caches __pycache__ do projeto: normalmente sao pequenos, entao so
+    # entram na limpeza se algum crescer demais.
     for sub in ("", "scripts", "webui", "i18n"):
         p = os.path.join(BASE_DIR, sub, "__pycache__")
-        if os.path.isdir(p):
+        if os.path.isdir(p) and _path_size(p) >= PYCACHE_CLEANUP_THRESHOLD_BYTES:
             targets.append(p)
     # Filtro de segurança final
     return [t for t in targets if _is_safe_to_delete(t)]
@@ -276,41 +360,7 @@ def generate_project_gallery(project_path_name, is_full_path=False):
             score = seg.get("score", "N/A")
             description = seg.get("description", i18n("No description available."))
             
-            video_path = seg.get("filepath", None)
-            
-            # Smart search
-            if not video_path:
-                idx_str = f"{i:03d}"
-                potential_paths = [
-                    os.path.join(project_folder_path, "burned_sub", f"final-output{idx_str}_processed_subtitled.mp4"),
-                    os.path.join(project_folder_path, "burned_sub", f"output{idx_str}.mp4"),
-                    os.path.join(project_folder_path, f"final-output{idx_str}_processed.mp4"),
-                    os.path.join(project_folder_path, f"output{idx_str}_original_scale.mp4"),
-                    os.path.join(project_folder_path, f"output{idx_str}.mp4"),
-                    os.path.join(project_folder_path, "cuts", f"output{idx_str}_original_scale.mp4"),
-                    os.path.join(project_folder_path, "cuts", f"segment_{idx_str}.mp4"),
-                    os.path.join(project_folder_path, "cuts", f"{idx_str}.mp4")
-                ]
-                if isinstance(seg.get("filename"), str):
-                    potential_paths.insert(0, os.path.join(project_folder_path, seg["filename"]))
-                    potential_paths.insert(0, os.path.join(project_folder_path, "burned_sub", seg["filename"]))
-
-                for p in potential_paths:
-                    if os.path.exists(p):
-                        video_path = p
-                        break
-            
-            # Loose search
-            if not video_path:
-                 sub_dirs = [os.path.join(project_folder_path, "burned_sub"), os.path.join(project_folder_path, "cuts")]
-                 for sd in sub_dirs:
-                     if os.path.exists(sd):
-                         for f in sorted(os.listdir(sd)):
-                             idx_str = f"{i:03d}"
-                             if f.endswith(".mp4") and idx_str in f:
-                                 video_path = os.path.join(sd, f)
-                                 break
-                     if video_path: break
+            video_path = _find_segment_video(project_folder_path, i, seg)
 
             video_tag = ""
             download_link = ""
@@ -401,7 +451,7 @@ def generate_project_gallery(project_path_name, is_full_path=False):
                 saldo_end = 5 - buf_end
                 proj_name_buffer = urllib.parse.quote(os.path.basename(project_path_name), safe="")
 
-                input_style = "width: 44px; height: 26px; background: var(--vc-surface); color: var(--vc-text); border: 1px solid var(--vc-border-strong); border-radius: 5px; text-align: center; font-size: 13px; font-family: sans-serif; -moz-appearance: textfield;"
+                input_style = "width: 56px; height: 26px; background: var(--vc-surface); color: var(--vc-text); border: 1px solid var(--vc-border-strong); border-radius: 5px; text-align: center; font-size: 13px; font-family: sans-serif; -moz-appearance: textfield;"
                 label_style = "color: var(--vc-text-soft); font-size: 11px; font-family: sans-serif; white-space: nowrap;"
                 saldo_style = "color: var(--vc-text-muted); font-size: 10px; font-family: sans-serif; white-space: nowrap;"
                 row_style = "display: flex; align-items: center; gap: 6px; justify-content: space-between;"
@@ -414,15 +464,16 @@ def generate_project_gallery(project_path_name, is_full_path=False):
                         <div style="display: flex; align-items: center; gap: 4px; justify-content: center; margin-bottom: 2px;">
                             <span class="vc-icon-inline" style="color: var(--vc-text-soft); font-size: 11px; font-family: sans-serif;">{icon("refresh", 13)}<span>Margem de segurança</span></span>
                         </div>
+                        <div style="color: var(--vc-text-muted); font-size: 10px; font-family: sans-serif; text-align: center;">+ amplia, - corta</div>
                         <div style="{row_style}">
                             <span style="{label_style}">Início:</span>
-                            <input type="number" class="buffer-start-input" id="{uid}_start" min="0" max="5" step="1" value="{buf_start}" style="{input_style}" onchange="var s=this.parentElement.querySelector('.saldo-start');if(s)s.textContent='(saldo: '+(5-Math.max(0,Math.min(5,parseInt(this.value)||0)))+'s)'" oninput="this.value=Math.max(0,Math.min(5,parseInt(this.value)||0))">
+                            <input type="number" class="buffer-start-input" id="{uid}_start" min="-600" max="600" step="1" value="{buf_start}" style="{input_style}" title="+ amplia para antes, - corta o inicio" onchange="if(window.vcUpdateBufferSaldo)window.vcUpdateBufferSaldo(this)" oninput="if(window.vcClampBufferInput)window.vcClampBufferInput(this)">
                             <span style="{label_style}">s</span>
                             <span class="saldo-start" style="{saldo_style}">(saldo: {saldo_start}s)</span>
                         </div>
                         <div style="{row_style}">
                             <span style="{label_style}">Final:</span>
-                            <input type="number" class="buffer-end-input" id="{uid}_end" min="0" max="5" step="1" value="{buf_end}" style="{input_style}" onchange="var s=this.parentElement.querySelector('.saldo-end');if(s)s.textContent='(saldo: '+(5-Math.max(0,Math.min(5,parseInt(this.value)||0)))+'s)'" oninput="this.value=Math.max(0,Math.min(5,parseInt(this.value)||0))">
+                            <input type="number" class="buffer-end-input" id="{uid}_end" min="-600" max="600" step="1" value="{buf_end}" style="{input_style}" title="+ amplia depois, - corta o final" onchange="if(window.vcUpdateBufferSaldo)window.vcUpdateBufferSaldo(this)" oninput="if(window.vcClampBufferInput)window.vcClampBufferInput(this)">
                             <span style="{label_style}">s</span>
                             <span class="saldo-end" style="{saldo_style}">(saldo: {saldo_end}s)</span>
                         </div>
@@ -446,34 +497,40 @@ def generate_project_gallery(project_path_name, is_full_path=False):
             feature_accent = {"watermark": "#0ea5e9", "outro": "#a855f7", "audio_bgm": "#22c55e", "outro_music": "#f59e0b"}
             plus_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>'
             check_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+            x_svg = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="m15 9-6 6"></path><path d="m9 9 6 6"></path></svg>'
             apply_btns = ""
             for fkey, short_label, full_title in apply_features:
                 esc_label = html.escape(short_label, quote=True)
+                accent = feature_accent.get(fkey, "#3b82f6")
+                apply_title = html.escape(full_title, quote=True)
+                remove_title = html.escape(f"{i18n('Remover')} {short_label}", quote=True)
                 if bool(feats.get(fkey, False)):
                     apply_btns += (
-                        f'<button type="button" class="apply-feature-btn applied" disabled '
-                        f'data-feature="{fkey}" data-label="{esc_label}" '
+                        f'<button type="button" class="apply-feature-btn applied" '
+                        f'data-feature="{fkey}" data-project="{proj_name_apply}" data-segment="{i}" data-label="{esc_label}" '
+                        f'data-accent="{accent}" data-apply-title="{apply_title}" data-remove-title="{remove_title}" '
                         f'style="display:inline-flex; align-items:center; gap:5px; padding:5px 9px; border-radius:8px; '
-                        f'background:#E2E8F0; color:#94A3B8; border:1px solid #CBD5E1; cursor:default; pointer-events:none; '
-                        f'font-size:11.5px; font-weight:600; font-family:sans-serif;" title="{html.escape(i18n("Já aplicado neste corte"), quote=True)}">'
-                        f'{check_svg}<span>{short_label}</span></button>'
+                        f'background:#E2E8F0; color:#94A3B8; border:1px solid #CBD5E1; cursor:pointer; '
+                        f'font-size:11.5px; font-weight:600; font-family:sans-serif;" title="{remove_title}">'
+                        f'<span class="vc-feature-icon-current">{check_svg}</span><span class="vc-feature-icon-remove">{x_svg}</span><span class="vc-feature-label">{esc_label}</span></button>'
                     )
                 else:
                     accent = feature_accent.get(fkey, "#3b82f6")
                     apply_btns += (
                         f'<button type="button" class="apply-feature-btn" '
                         f'data-feature="{fkey}" data-project="{proj_name_apply}" data-segment="{i}" data-label="{esc_label}" '
+                        f'data-accent="{accent}" data-apply-title="{apply_title}" data-remove-title="{remove_title}" '
                         f'style="display:inline-flex; align-items:center; gap:5px; padding:5px 9px; border-radius:7px; '
                         f'background:{accent}; color:#fff; border:none; cursor:pointer; '
                         f'font-size:11.5px; font-weight:600; font-family:sans-serif; transition:filter .2s;" '
                         f'title="{html.escape(full_title, quote=True)}" onmouseover="this.style.filter=\'brightness(1.12)\'" onmouseout="this.style.filter=\'brightness(1)\'">'
-                        f'{plus_svg}<span>{short_label}</span></button>'
+                        f'{plus_svg}<span class="vc-feature-label">{esc_label}</span></button>'
                     )
             apply_buttons_html = f'<div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; justify-content:center;">{apply_btns}</div>'
 
             # Card HTML - Dark Grid Style like Opus.pro (Inline Styles)
             card_html = f"""
-            <div class="viral-card" style="display: flex; flex-direction: column; background: transparent; overflow: visible;">
+            <div class="viral-card" data-segment="{i}" style="display: flex; flex-direction: column; background: transparent; overflow: visible;">
                 
                 <!-- Video Player Container (9:16 Aspect Ratio) -->
                 <div class="vc-video-wrap" style="position: relative; width: 100%; padding-top: 177.77%; background: #0F172A; border-radius: 14px; overflow: hidden; margin-bottom: 12px; border: 1px solid {PALETTE['border_strong']}; box-shadow: 0 6px 16px rgba(52,126,102,0.10); transition: box-shadow .2s ease;">

@@ -5,6 +5,7 @@ try:
     from media_utils import (
         build_file_url,
         build_file_url_candidates,
+        PROJECT_ROOT,
         extract_file_path,
         persist_replacing,
         resolve_existing_path,
@@ -14,13 +15,14 @@ except ImportError:
     from webui.media_utils import (
         build_file_url,
         build_file_url_candidates,
+        PROJECT_ROOT,
         extract_file_path,
         persist_replacing,
         resolve_existing_path,
         to_project_relative,
     )
 
-CONFIG_FILE = "audio_config.json"
+CONFIG_FILE = os.path.join(PROJECT_ROOT, "audio_config.json")
 
 DEFAULT_OUTRO_MUSIC_CONFIG = {
     "enabled": False,

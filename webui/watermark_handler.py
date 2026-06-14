@@ -4,11 +4,11 @@ import cv2
 import numpy as np
 
 try:
-    from media_utils import extract_file_path, persist_replacing, resolve_existing_path, to_project_relative
+    from media_utils import PROJECT_ROOT, extract_file_path, persist_replacing, resolve_existing_path, to_project_relative
 except ImportError:
-    from webui.media_utils import extract_file_path, persist_replacing, resolve_existing_path, to_project_relative
+    from webui.media_utils import PROJECT_ROOT, extract_file_path, persist_replacing, resolve_existing_path, to_project_relative
 
-CONFIG_FILE = "watermark_config.json"
+CONFIG_FILE = os.path.join(PROJECT_ROOT, "watermark_config.json")
 
 def load_watermark_config():
     defaults = {

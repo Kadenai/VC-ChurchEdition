@@ -435,6 +435,103 @@ html[data-vc-theme="dark"] .vc-help li {{
     color: var(--vc-text-soft);
 }}
 
+@keyframes vc-spin {{
+    to {{ transform: rotate(360deg); }}
+}}
+
+@keyframes vc-processing-pulse {{
+    0%, 100% {{ box-shadow: 0 0 0 0 rgba(52, 211, 153, .20); }}
+    50% {{ box-shadow: 0 0 0 8px rgba(52, 211, 153, 0); }}
+}}
+
+.vc-processing-status {{
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    margin: 10px 0 14px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    background: var(--vc-surface-soft);
+    border: 1px solid var(--vc-border);
+    color: var(--vc-text);
+    box-shadow: 0 10px 28px rgba(8, 55, 41, .10);
+}}
+
+.vc-processing-status.is-running {{
+    border-color: var(--vc-primary);
+    background:
+        linear-gradient(135deg, rgba(52, 211, 153, .13), rgba(255, 255, 255, 0)),
+        var(--vc-surface-soft);
+}}
+
+.vc-processing-status.is-done {{
+    border-color: rgba(70, 160, 133, .45);
+}}
+
+.vc-processing-status.is-error {{
+    border-color: rgba(225, 29, 72, .36);
+    background: rgba(225, 29, 72, .08);
+}}
+
+.vc-processing-status.is-manual {{
+    border-color: rgba(224, 164, 63, .45);
+    background: rgba(224, 164, 63, .09);
+}}
+
+.vc-processing-mark {{
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 38px;
+    width: 38px;
+    height: 38px;
+    border-radius: 999px;
+    color: var(--vc-primary-deep);
+    background: var(--vc-surface);
+}}
+
+.vc-processing-status.is-running .vc-processing-mark {{
+    animation: vc-processing-pulse 1.8s ease-in-out infinite;
+}}
+
+.vc-processing-spinner {{
+    position: absolute;
+    inset: 2px;
+    border: 3px solid rgba(70, 160, 133, .22);
+    border-top-color: var(--vc-primary);
+    border-radius: inherit;
+    animation: vc-spin .8s linear infinite;
+}}
+
+.vc-processing-icon {{
+    display: inline-flex;
+    position: relative;
+    z-index: 1;
+}}
+
+.vc-processing-status.is-error .vc-processing-mark {{
+    color: var(--vc-error);
+}}
+
+.vc-processing-copy {{
+    min-width: 0;
+}}
+
+.vc-processing-title {{
+    color: var(--vc-text);
+    font-weight: 800;
+    font-size: 1rem;
+    line-height: 1.25;
+}}
+
+.vc-processing-message {{
+    color: var(--vc-text-soft);
+    font-weight: 600;
+    margin-top: 2px;
+    transition: opacity .14s ease;
+}}
+
 .viral-card {{
     transition: transform .2s ease;
 }}

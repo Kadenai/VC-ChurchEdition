@@ -1,8 +1,26 @@
 
+import copy
 import json
 import os
 import re
 import sys
+
+_RENDER_FEATURE_KEYS = ("watermark", "outro", "audio_bgm", "outro_music", "source_volume")
+
+
+def _normalize_render_features(feature_overrides):
+    if feature_overrides is None:
+        return None
+    requested = {k: bool(feature_overrides.get(k, False)) for k in _RENDER_FEATURE_KEYS}
+    requested["subtitles"] = True
+    if not requested.get("outro", False):
+        requested["outro_music"] = False
+    return requested
+
+
+def _feature_requested(requested_features, feature):
+    return requested_features is None or bool(requested_features.get(feature, False))
+
 
 # Helper to format seconds to HH:MM:SS,mmm
 def format_timestamp(seconds):
@@ -180,7 +198,7 @@ def list_editable_files(project_dir):
     files = [f for f in os.listdir(subs_dir) if f.endswith('_processed.json')]
     return sorted(files)
 
-def render_specific_video(json_full_path):
+def render_specific_video(json_full_path, feature_overrides=None):
     """
     1. Regenerate ASS for this specific JSON file.
     2. Burn ASS into the corresponding Video file.
@@ -189,6 +207,7 @@ def render_specific_video(json_full_path):
         return "Error: JSON file not found."
 
     project_folder = os.path.dirname(os.path.dirname(json_full_path)) # ../../ from subs/file.json
+    requested_features = _normalize_render_features(feature_overrides)
     
     # Identify key paths
     filename = os.path.basename(json_full_path)
@@ -311,7 +330,7 @@ def render_specific_video(json_full_path):
                  if os.path.exists(watermark_cfg_path):
                      with open(watermark_cfg_path, "r", encoding="utf-8") as f:
                          wm_cfg = json.load(f)
-                     if wm_cfg.get("enabled", False):
+                     if wm_cfg.get("enabled", False) and _feature_requested(requested_features, "watermark"):
                          from scripts import apply_watermark
                          apply_watermark.process_all_videos(temp_proc_dir, wm_cfg, temp_proc_dir)
                  
@@ -320,7 +339,7 @@ def render_specific_video(json_full_path):
                  if os.path.exists(outro_cfg_path):
                      with open(outro_cfg_path, "r", encoding="utf-8") as f:
                          outro_cfg = json.load(f)
-                     if outro_cfg.get("enabled", False):
+                     if outro_cfg.get("enabled", False) and _feature_requested(requested_features, "outro"):
                          from scripts import append_outro
                          append_outro.process_all_videos(temp_proc_dir, outro_cfg, temp_proc_dir)
                          
@@ -332,6 +351,19 @@ def render_specific_video(json_full_path):
                  if os.path.exists(audio_cfg_path):
                      with open(audio_cfg_path, "r", encoding="utf-8") as f:
                          audio_cfg = json.load(f)
+                     if requested_features is not None:
+                         audio_cfg = copy.deepcopy(audio_cfg)
+                         if not requested_features.get("audio_bgm", False):
+                             audio_cfg["enabled"] = False
+                         if not requested_features.get("outro_music", False):
+                             om_cfg = audio_cfg.get("outro_music", {})
+                             if isinstance(om_cfg, dict):
+                                 om_cfg["enabled"] = False
+                                 audio_cfg["outro_music"] = om_cfg
+                         if not requested_features.get("source_volume", False):
+                             audio_cfg["source_video_volume"] = 100.0
+                         if not requested_features.get("outro", False):
+                             audio_cfg["_vc_disable_outro_sync"] = True
                      try:
                          src_vol = float(audio_cfg.get("source_video_volume", 200.0))
                      except (TypeError, ValueError):
@@ -364,9 +396,14 @@ def render_specific_video(json_full_path):
                  idx_match = re.search(r"^(\d+)_", base_name) or re.search(r"output(\d+)", base_name)
                  if idx_match:
                      seg_index = int(idx_match.group(1))
-                     render_state.set_segment_features(
-                         project_folder, seg_index, render_state.compute_enabled_features(root_dir)
-                     )
+                     features_to_record = render_state.compute_enabled_features(root_dir)
+                     if requested_features is not None:
+                         for key in _RENDER_FEATURE_KEYS:
+                             features_to_record[key] = bool(features_to_record.get(key, False)) and bool(requested_features.get(key, False))
+                         features_to_record["subtitles"] = True
+                         if not features_to_record.get("outro", False):
+                             features_to_record["outro_music"] = False
+                     render_state.set_segment_features(project_folder, seg_index, features_to_record)
              except Exception as st_err:
                  print(f"[render_state] não foi possível registrar estado: {st_err}")
 

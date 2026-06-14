@@ -1,10 +1,10 @@
 {
-    "enabled": false,
-    "audio_file_path": null,
+    "enabled": true,
+    "audio_file_path": "WEBUI_ASSETS/audio/Irai-vos_Mas_N_o_Pequeis_1781401449_debe29bd.mp3",
     "base_volume": 12,
     "source_video_volume": 200.0,
     "loop_to_end": true,
-    "fade_in_duration": 0.5,
+    "fade_in_duration": 0,
     "fade_out_duration": 0.5,
     "crossfade_duration": 3,
     "use_ending_volume": true,

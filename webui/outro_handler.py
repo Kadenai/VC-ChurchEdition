@@ -4,11 +4,11 @@ import cv2
 import numpy as np
 
 try:
-    from media_utils import extract_file_path, persist_replacing, resolve_existing_path, to_project_relative
+    from media_utils import PROJECT_ROOT, extract_file_path, persist_replacing, resolve_existing_path, to_project_relative
 except ImportError:
-    from webui.media_utils import extract_file_path, persist_replacing, resolve_existing_path, to_project_relative
+    from webui.media_utils import PROJECT_ROOT, extract_file_path, persist_replacing, resolve_existing_path, to_project_relative
 
-CONFIG_FILE = "outro_config.json"
+CONFIG_FILE = os.path.join(PROJECT_ROOT, "outro_config.json")
 
 def load_outro_config():
     defaults = {

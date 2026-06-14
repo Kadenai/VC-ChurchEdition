@@ -3,24 +3,9 @@ import json
 import mimetypes
 
 try:
-    from media_utils import build_file_url, build_file_url_candidates, resolve_existing_path
+    from media_utils import build_file_url, build_file_url_candidates, extract_file_path, resolve_existing_path
 except ImportError:
-    from webui.media_utils import build_file_url, build_file_url_candidates, resolve_existing_path
-
-
-def _extract_file_path(file_obj):
-    if not file_obj:
-        return None
-    if isinstance(file_obj, str):
-        return file_obj
-    if hasattr(file_obj, "name"):
-        return file_obj.name
-    if isinstance(file_obj, list) and len(file_obj) > 0:
-        first_item = file_obj[0]
-        if hasattr(first_item, "name"):
-            return first_item.name
-        return str(first_item)
-    return str(file_obj)
+    from webui.media_utils import build_file_url, build_file_url_candidates, extract_file_path, resolve_existing_path
 
 
 def _clamp_volume_percent(value):
@@ -40,7 +25,7 @@ def generate_original_volume_preview(video_file, source_video_volume=200):
     if not video_file:
         return '<div style="padding: 20px; text-align: center; color: #888;">Carregue um video teste para ajustar o volume original em tempo real.</div>'
 
-    video_path = resolve_existing_path(_extract_file_path(video_file))
+    video_path = resolve_existing_path(extract_file_path(video_file))
     if not video_path:
         return '<div style="padding: 20px; text-align: center; color: #888;">Arquivo de video nao encontrado no disco.</div>'
 
