@@ -3,6 +3,7 @@ import subprocess
 import os
 import sys
 import json
+import copy
 import psutil
 import shutil
 import datetime
@@ -10,7 +11,8 @@ import html
 import random
 import time
 import urllib.parse
-from fastapi import FastAPI
+import uuid
+from fastapi import Body, FastAPI, File, Form, UploadFile
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
@@ -23,6 +25,9 @@ import outro_handler # Module for Outro/Ending Logic
 import watermark_handler # Module for Watermark Logic
 import audio_handler # Module for Audio Overlay Logic
 import original_volume_handler # Module for original source volume preview
+import segment_editor_state # Per-segment dynamic editor state
+import segment_editor_preview # Fast per-segment visual preview
+import render_state # Applied feature flags per segment
 try:
     from media_utils import extract_file_path, resolve_existing_path
 except ImportError:
@@ -1388,7 +1393,563 @@ _global_js = """
         });
     }
 
+    const vcSegmentEditor = {
+        project: '',
+        segment: null,
+        card: null,
+        data: null,
+        activeTab: 'subtitle',
+        saveTimer: null,
+        previewTimer: null,
+        previewRequestId: 0,
+        saving: false
+    };
+
+    function vcEnsureSegmentEditor() {
+        if (!document.getElementById('vc-segment-editor-style')) {
+            const css = document.createElement('style');
+            css.id = 'vc-segment-editor-style';
+            css.textContent = `
+                .vc-segment-editor-overlay{position:fixed;inset:0;background:rgba(15,23,42,.72);z-index:9999;display:flex;align-items:center;justify-content:center;padding:18px}
+                .vc-segment-editor-modal{width:min(1180px,96vw);height:min(860px,94vh);background:var(--vc-surface);color:var(--vc-text);border:1px solid var(--vc-border-strong);border-radius:12px;box-shadow:0 24px 80px rgba(0,0,0,.35);display:grid;grid-template-rows:auto 1fr auto;overflow:hidden}
+                .vc-segment-editor-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-bottom:1px solid var(--vc-border);background:var(--vc-surface-soft)}
+                .vc-segment-editor-title{font-weight:800;font-size:15px;line-height:1.25}
+                .vc-segment-editor-close{border:0;background:transparent;color:var(--vc-text-muted);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:6px;border-radius:8px}
+                .vc-segment-editor-body{display:grid;grid-template-columns:minmax(420px,500px) 1fr;min-height:0}
+                .vc-segment-editor-preview{padding:14px;border-right:1px solid var(--vc-border);background:#0f172a;min-height:0;display:flex;align-items:stretch}
+                .vc-segment-editor-preview-grid{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:12px;min-height:0}
+                .vc-preview-pane{min-width:0;display:grid;grid-template-rows:auto 1fr;gap:8px;color:#cbd5e1}
+                .vc-preview-pane-title{font-size:12px;font-weight:800;color:#e2e8f0;display:flex;align-items:center;gap:6px}
+                .vc-preview-frame{min-height:0;border:1px solid rgba(148,163,184,.22);border-radius:10px;background:#020617;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative}
+                .vc-preview-frame video,.vc-preview-frame img{width:100%;height:100%;object-fit:contain;background:#000}
+                .vc-segment-editor-preview-placeholder,.vc-segment-editor-live-placeholder{padding:14px;text-align:center;color:#94a3b8;font-size:12px;line-height:1.45}
+                .vc-segment-editor-preview-status{font-size:11px;color:#94a3b8}
+                .vc-segment-editor-side{display:grid;grid-template-columns:170px 1fr;min-width:0;min-height:0}
+                .vc-segment-editor-tabs{border-right:1px solid var(--vc-border);background:var(--vc-surface-soft);padding:10px;display:flex;flex-direction:column;gap:6px}
+                .vc-segment-editor-tab{border:1px solid transparent;background:transparent;color:var(--vc-text);border-radius:8px;padding:9px 10px;text-align:left;cursor:pointer;font-weight:700;display:flex;align-items:center;gap:8px}
+                .vc-segment-editor-tab.active{background:var(--vc-primary-soft);border-color:var(--vc-border-strong);color:var(--vc-primary-deep)}
+                .vc-segment-editor-panels{overflow:auto;padding:14px}
+                .vc-segment-editor-panel{display:none}
+                .vc-segment-editor-panel.active{display:block}
+                .vc-editor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+                .vc-editor-field{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--vc-text-soft)}
+                .vc-editor-field input,.vc-editor-field select{width:100%;box-sizing:border-box;border:1px solid var(--vc-border-strong);border-radius:7px;background:var(--vc-surface);color:var(--vc-text);padding:8px;font-size:13px}
+                .vc-editor-field input[type="checkbox"]{width:auto}
+                .vc-editor-check{flex-direction:row;align-items:center;color:var(--vc-text);font-weight:600}
+                .vc-editor-section-title{font-size:13px;font-weight:800;margin:14px 0 8px;color:var(--vc-primary-deep)}
+                .vc-segment-editor-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-top:1px solid var(--vc-border);background:var(--vc-surface-soft)}
+                .vc-segment-editor-status{font-size:12px;color:var(--vc-text-muted)}
+                .vc-segment-editor-render{border:0;border-radius:9px;background:var(--vc-grad);color:#fff;font-weight:800;padding:9px 14px;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+                @media(max-width:980px){.vc-segment-editor-body{grid-template-columns:1fr}.vc-segment-editor-preview{height:360px;border-right:0;border-bottom:1px solid var(--vc-border)}.vc-segment-editor-side{grid-template-columns:1fr}.vc-segment-editor-tabs{flex-direction:row;overflow:auto;border-right:0;border-bottom:1px solid var(--vc-border)}.vc-editor-grid{grid-template-columns:1fr}}
+                @media(max-width:560px){.vc-segment-editor-preview{height:520px}.vc-segment-editor-preview-grid{grid-template-columns:1fr}}
+            `;
+            document.head.appendChild(css);
+        }
+        let overlay = document.getElementById('vc-segment-editor-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'vc-segment-editor-overlay';
+            overlay.className = 'vc-segment-editor-overlay';
+            overlay.style.display = 'none';
+            document.body.appendChild(overlay);
+        }
+        return overlay;
+    }
+
+    function vcDeepGet(obj, path, fallback) {
+        const parts = String(path || '').split('.');
+        let cur = obj;
+        for (const part of parts) {
+            if (!cur || typeof cur !== 'object' || !(part in cur)) return fallback;
+            cur = cur[part];
+        }
+        return cur === undefined || cur === null ? fallback : cur;
+    }
+
+    function vcDeepSet(obj, path, value) {
+        const parts = String(path || '').split('.');
+        let cur = obj;
+        for (let i = 0; i < parts.length - 1; i++) {
+            const part = parts[i];
+            if (!cur[part] || typeof cur[part] !== 'object') cur[part] = {};
+            cur = cur[part];
+        }
+        cur[parts[parts.length - 1]] = value;
+    }
+
+    function vcAssToHex(value, fallback = '#FFFFFF') {
+        const text = String(value || '').trim();
+        const m = text.match(/&H[0-9A-Fa-f]{2}([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})&?/);
+        if (m) return '#' + m[3] + m[2] + m[1];
+        if (/^#[0-9A-Fa-f]{6}$/.test(text)) return text;
+        return fallback;
+    }
+
+    function vcHexToAss(value) {
+        const clean = String(value || '#FFFFFF').replace('#', '').trim();
+        if (!/^[0-9A-Fa-f]{6}$/.test(clean)) return '&H00FFFFFF&';
+        return ('&H00' + clean.slice(4, 6) + clean.slice(2, 4) + clean.slice(0, 2) + '&').toUpperCase();
+    }
+
+    function vcEditorInput(config, path, label, type, fallback, attrs = '') {
+        const cfg = (((vcSegmentEditor.data || {}).state || {}).configs || {})[config] || {};
+        const raw = vcDeepGet(cfg, path, fallback);
+        const value = type === 'color' ? vcAssToHex(raw, fallback) : raw;
+        const ass = type === 'color' ? ' data-ass="1"' : '';
+        return `<label class="vc-editor-field"><span>${label}</span><input class="vc-editor-input" data-config="${config}" data-path="${path}" type="${type}" value="${vcEscapeHtml(value)}"${ass} ${attrs}></label>`;
+    }
+
+    function vcEditorCheck(config, path, label, intBool = false) {
+        const cfg = (((vcSegmentEditor.data || {}).state || {}).configs || {})[config] || {};
+        const checked = !!vcDeepGet(cfg, path, false);
+        return `<label class="vc-editor-field vc-editor-check"><input class="vc-editor-input" data-config="${config}" data-path="${path}" type="checkbox" ${intBool ? 'data-int-bool="1"' : ''} ${checked ? 'checked' : ''}><span>${label}</span></label>`;
+    }
+
+    function vcEditorSelect(config, path, label, options, fallback) {
+        const cfg = (((vcSegmentEditor.data || {}).state || {}).configs || {})[config] || {};
+        const cur = String(vcDeepGet(cfg, path, fallback));
+        const opts = options.map(([value, text]) => `<option value="${vcEscapeHtml(value)}" ${cur === String(value) ? 'selected' : ''}>${text}</option>`).join('');
+        return `<label class="vc-editor-field"><span>${label}</span><select class="vc-editor-input" data-config="${config}" data-path="${path}">${opts}</select></label>`;
+    }
+
+    function vcEditorFile(config, field, label, accept) {
+        return `<label class="vc-editor-field"><span>${label}</span><input class="vc-editor-file" data-config="${config}" data-field="${field}" type="file" accept="${accept || ''}"></label>`;
+    }
+
     // Aplicar um recurso desativável (marca d'água/outro/áudio/música) a UM corte.
+    function vcRenderSegmentEditor(data) {
+        vcSegmentEditor.data = data;
+        const overlay = vcEnsureSegmentEditor();
+        const state = data.state || {};
+        const configs = state.configs || {};
+        const title = vcEscapeHtml(data.title || ('Segmento ' + ((data.segment || 0) + 1)));
+        const videoSrc = data.video_url ? vcCacheBust(data.video_url) : '';
+        overlay.innerHTML = `
+            <div class="vc-segment-editor-modal" role="dialog" aria-modal="true">
+                <div class="vc-segment-editor-head">
+                    <div class="vc-segment-editor-title">${vcIcon('edit', 18)} Editando: ${title}</div>
+                    <button type="button" class="vc-segment-editor-close" title="Fechar">${vcIcon('x', 22)}</button>
+                </div>
+                <div class="vc-segment-editor-body">
+                    <div class="vc-segment-editor-preview">
+                        <div class="vc-segment-editor-preview-grid">
+                            <div class="vc-preview-pane">
+                                <div class="vc-preview-pane-title">${vcIcon('play', 14)}Video atual</div>
+                                <div class="vc-preview-frame">
+                                    ${videoSrc ? `<video controls playsinline preload="metadata"><source src="${videoSrc}" type="video/mp4"></video>` : `<div class="vc-segment-editor-preview-placeholder">Video nao encontrado</div>`}
+                                </div>
+                            </div>
+                            <div class="vc-preview-pane">
+                                <div class="vc-preview-pane-title">${vcIcon('palette', 14)}Previa rapida</div>
+                                <div class="vc-preview-frame">
+                                    <img class="vc-segment-editor-preview-img" alt="Previa rapida" style="display:none">
+                                    <div class="vc-segment-editor-live-placeholder">Gerando preview...</div>
+                                </div>
+                                <div class="vc-segment-editor-preview-status">Legendas, marca d'agua e outro usam uma imagem rapida.</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="vc-segment-editor-side">
+                        <div class="vc-segment-editor-tabs">
+                            <button type="button" class="vc-segment-editor-tab active" data-editor-tab="subtitle">${vcIcon('message', 16)}Legendas</button>
+                            <button type="button" class="vc-segment-editor-tab" data-editor-tab="watermark">${vcIcon('droplet', 16)}Marca</button>
+                            <button type="button" class="vc-segment-editor-tab" data-editor-tab="audio">${vcIcon('music', 16)}Audio</button>
+                            <button type="button" class="vc-segment-editor-tab" data-editor-tab="outro">${vcIcon('film', 16)}Outro</button>
+                        </div>
+                        <div class="vc-segment-editor-panels">
+                            <section class="vc-segment-editor-panel active" data-editor-panel="subtitle">
+                                <div class="vc-editor-grid">
+                                    ${vcEditorInput('subtitle','font','Fonte','text','Montserrat')}
+                                    ${vcEditorInput('subtitle','base_size','Tamanho base','number',30,'min="8" max="120" step="1"')}
+                                    ${vcEditorInput('subtitle','base_color','Cor base','color','#FFFFFF')}
+                                    ${vcEditorInput('subtitle','highlight_color','Cor destaque','color','#FFFFFF')}
+                                    ${vcEditorInput('subtitle','highlight_size','Tamanho destaque','number',30,'min="8" max="120" step="1"')}
+                                    ${vcEditorSelect('subtitle','mode','Modo',[['highlight','Destaque'],['word_by_word','Palavra por palavra'],['no_highlight','Sem destaque']],'no_highlight')}
+                                    ${vcEditorInput('subtitle','words_per_block','Palavras por bloco','number',4,'min="1" max="30" step="1"')}
+                                    ${vcEditorInput('subtitle','gap_limit','Limite de pausa','number',0.6,'min="0" max="10" step="0.1"')}
+                                    ${vcEditorInput('subtitle','vertical_position','Posicao vertical','number',140,'min="0" max="700" step="1"')}
+                                    ${vcEditorInput('subtitle','margin_h','Margem horizontal','number',35,'min="0" max="500" step="1"')}
+                                    ${vcEditorSelect('subtitle','alignment','Alinhamento',[['1','Esquerda'],['2','Centro'],['3','Direita']],'2')}
+                                    ${vcEditorInput('subtitle','outline_color','Cor contorno','color','#000000')}
+                                    ${vcEditorInput('subtitle','outline_thickness','Espessura contorno','number',1,'min="0" max="20" step="1"')}
+                                    ${vcEditorInput('subtitle','shadow_color','Cor sombra','color','#000000')}
+                                    ${vcEditorInput('subtitle','shadow_size','Tamanho sombra','number',1,'min="0" max="20" step="1"')}
+                                    ${vcEditorSelect('subtitle','border_style','Borda',[['1','Contorno'],['3','Caixa opaca']],'1')}
+                                    ${vcEditorCheck('subtitle','bold','Negrito', true)}
+                                    ${vcEditorCheck('subtitle','italic','Italico', true)}
+                                    ${vcEditorCheck('subtitle','uppercase','Maiusculas', true)}
+                                    ${vcEditorCheck('subtitle','underline','Sublinhado', true)}
+                                    ${vcEditorCheck('subtitle','strikeout','Tachado', true)}
+                                    ${vcEditorCheck('subtitle','remove_punctuation','Remover pontuacao')}
+                                </div>
+                            </section>
+                            <section class="vc-segment-editor-panel" data-editor-panel="watermark">
+                                <div class="vc-editor-grid">
+                                    ${vcEditorCheck('watermark','enabled','Ativar marca d agua')}
+                                    ${vcEditorFile('watermark','watermark_image_path','Enviar imagem','image/*')}
+                                    ${vcEditorInput('watermark','watermark_image_path','Caminho da imagem','text',vcDeepGet(configs.watermark || {}, 'watermark_image_path', ''))}
+                                    ${vcEditorInput('watermark','position_x','Posicao X','number',480,'min="-1080" max="1080" step="1"')}
+                                    ${vcEditorInput('watermark','position_y','Posicao Y','number',0,'min="-1920" max="1920" step="1"')}
+                                    ${vcEditorInput('watermark','scale','Escala (%)','number',15,'min="1" max="500" step="1"')}
+                                    ${vcEditorInput('watermark','opacity','Opacidade (%)','number',30,'min="0" max="100" step="1"')}
+                                </div>
+                            </section>
+                            <section class="vc-segment-editor-panel" data-editor-panel="audio">
+                                <div class="vc-editor-section-title">Trilha sonora</div>
+                                <div class="vc-editor-grid">
+                                    ${vcEditorCheck('audio','enabled','Ativar audio BGM')}
+                                    ${vcEditorFile('audio','audio_file_path','Enviar audio BGM','audio/*')}
+                                    ${vcEditorInput('audio','audio_file_path','Caminho do audio','text',vcDeepGet(configs.audio || {}, 'audio_file_path', ''))}
+                                    ${vcEditorInput('audio','base_volume','Volume BGM (%)','number',12,'min="0" max="100" step="1"')}
+                                    ${vcEditorInput('audio','source_video_volume','Volume original (%)','number',100,'min="0" max="200" step="1"')}
+                                    ${vcEditorCheck('audio','loop_to_end','Repetir ate o fim')}
+                                    ${vcEditorInput('audio','fade_in_duration','Fade-in (s)','number',0.5,'min="0" max="60" step="0.1"')}
+                                    ${vcEditorInput('audio','fade_out_duration','Fade-out (s)','number',0.5,'min="0" max="60" step="0.1"')}
+                                    ${vcEditorCheck('audio','stop_before_outro','Parar BGM antes do outro')}
+                                    ${vcEditorCheck('audio','use_ending_volume','Usar volume final')}
+                                    ${vcEditorCheck('audio','sync_with_outro','Sincronizar com outro')}
+                                    ${vcEditorInput('audio','ending_volume','Volume final (%)','number',20,'min="0" max="100" step="1"')}
+                                    ${vcEditorInput('audio','ending_start_time','Comecar volume final (s)','number',10,'min="0" max="600" step="1"')}
+                                    ${vcEditorInput('audio','crossfade_duration','Suavizacao (s)','number',3,'min="0" max="60" step="0.1"')}
+                                </div>
+                                <div class="vc-editor-section-title">Musica de encerramento</div>
+                                <div class="vc-editor-grid">
+                                    ${vcEditorCheck('audio','outro_music.enabled','Ativar musica do outro')}
+                                    ${vcEditorFile('audio','outro_music.audio_file_path','Enviar musica do outro','audio/*')}
+                                    ${vcEditorInput('audio','outro_music.audio_file_path','Caminho da musica','text',vcDeepGet(configs.audio || {}, 'outro_music.audio_file_path', ''))}
+                                    ${vcEditorInput('audio','outro_music.volume','Volume musica (%)','number',50,'min="0" max="100" step="1"')}
+                                    ${vcEditorSelect('audio','outro_music.start_from','Trecho usado',[['start','Inicio'],['end','Final']],'end')}
+                                    ${vcEditorInput('audio','outro_music.fade_in_duration','Fade-in musica (s)','number',1,'min="0" max="60" step="0.1"')}
+                                    ${vcEditorCheck('audio','outro_music.fade_out_enabled','Fade-out no fim')}
+                                    ${vcEditorInput('audio','outro_music.fade_out_duration','Fade-out musica (s)','number',1,'min="0" max="60" step="0.1"')}
+                                </div>
+                            </section>
+                            <section class="vc-segment-editor-panel" data-editor-panel="outro">
+                                <div class="vc-editor-grid">
+                                    ${vcEditorCheck('outro','enabled','Ativar outro / encerramento')}
+                                    ${vcEditorFile('outro','outro_video_path','Enviar video de outro','video/*')}
+                                    ${vcEditorInput('outro','outro_video_path','Caminho do video','text',vcDeepGet(configs.outro || {}, 'outro_video_path', ''))}
+                                    ${vcEditorFile('outro','overlay_image_path','Enviar imagem overlay','image/*')}
+                                    ${vcEditorInput('outro','overlay_image_path','Caminho da imagem','text',vcDeepGet(configs.outro || {}, 'overlay_image_path', ''))}
+                                    ${vcEditorInput('outro','fade_duration','Duracao do fade (s)','number',1,'min="0" max="30" step="0.1"')}
+                                    ${vcEditorInput('outro','outro_volume','Volume do outro (%)','number',100,'min="0" max="200" step="1"')}
+                                    ${vcEditorInput('outro','position_x','Imagem X','number',179,'min="-1080" max="1080" step="1"')}
+                                    ${vcEditorInput('outro','position_y','Imagem Y','number',886,'min="-1920" max="1920" step="1"')}
+                                    ${vcEditorInput('outro','scale','Escala imagem (%)','number',42,'min="1" max="500" step="1"')}
+                                    ${vcEditorInput('outro','rounded_corners','Bordas (%)','number',10,'min="0" max="50" step="1"')}
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                </div>
+                <div class="vc-segment-editor-foot">
+                    <div class="vc-segment-editor-status">Alteracoes sao salvas automaticamente para este video.</div>
+                    <button type="button" class="vc-segment-editor-render">${vcIcon('zap', 17)}<span>Salvar e renderizar este video</span></button>
+                </div>
+            </div>
+        `;
+        overlay.style.display = 'flex';
+        vcSegmentEditor.activeTab = 'subtitle';
+        vcScheduleSegmentEditorPreview('subtitle');
+    }
+
+    function vcSegmentEditorStatus(text, isError = false) {
+        const el = document.querySelector('#vc-segment-editor-overlay .vc-segment-editor-status');
+        if (!el) return;
+        el.textContent = text || '';
+        el.style.color = isError ? 'var(--vc-error)' : 'var(--vc-text-muted)';
+    }
+
+    function vcPreviewKindForTab(tab) {
+        return ['subtitle', 'watermark', 'outro'].includes(tab) ? tab : 'audio';
+    }
+
+    function vcSetSegmentEditorPreview(message, imageUrl, isError = false) {
+        const root = document.getElementById('vc-segment-editor-overlay');
+        if (!root) return;
+        const img = root.querySelector('.vc-segment-editor-preview-img');
+        const ph = root.querySelector('.vc-segment-editor-live-placeholder');
+        const status = root.querySelector('.vc-segment-editor-preview-status');
+        if (status) {
+            status.textContent = message || '';
+            status.style.color = isError ? 'var(--vc-error)' : '#94a3b8';
+        }
+        if (imageUrl && img) {
+            img.src = vcCacheBust(imageUrl);
+            img.style.display = 'block';
+            if (ph) ph.style.display = 'none';
+            return;
+        }
+        if (img) {
+            img.removeAttribute('src');
+            img.style.display = 'none';
+        }
+        if (ph) {
+            ph.textContent = message || 'Preview indisponivel.';
+            ph.style.display = 'block';
+            ph.style.color = isError ? 'var(--vc-error)' : '#94a3b8';
+        }
+    }
+
+    function vcSetSegmentEditorPreviewLoading(message) {
+        const root = document.getElementById('vc-segment-editor-overlay');
+        if (!root) return;
+        const img = root.querySelector('.vc-segment-editor-preview-img');
+        const ph = root.querySelector('.vc-segment-editor-live-placeholder');
+        const status = root.querySelector('.vc-segment-editor-preview-status');
+        if (status) {
+            status.textContent = message || 'Gerando preview rapido...';
+            status.style.color = '#94a3b8';
+        }
+        if (img && img.getAttribute('src')) {
+            img.style.display = 'block';
+            if (ph) ph.style.display = 'none';
+        } else if (ph) {
+            ph.textContent = message || 'Gerando preview rapido...';
+            ph.style.display = 'block';
+            ph.style.color = '#94a3b8';
+        }
+    }
+
+    function vcScheduleSegmentEditorPreview(kind) {
+        if (vcSegmentEditor.previewTimer) clearTimeout(vcSegmentEditor.previewTimer);
+        const previewKind = vcPreviewKindForTab(kind || vcSegmentEditor.activeTab || 'subtitle');
+        vcSegmentEditor.previewTimer = setTimeout(() => vcRefreshSegmentEditorPreview(previewKind), 450);
+    }
+
+    async function vcRefreshSegmentEditorPreview(kind) {
+        if (!vcSegmentEditor.data) return;
+        const previewKind = vcPreviewKindForTab(kind || vcSegmentEditor.activeTab || 'subtitle');
+        if (previewKind === 'audio') {
+            vcSetSegmentEditorPreview('A aba Audio ainda nao tem preview visual. Os ajustes continuam salvos por video.', null, false);
+            return;
+        }
+        const requestId = ++vcSegmentEditor.previewRequestId;
+        vcSetSegmentEditorPreviewLoading('Gerando preview rapido...');
+        try {
+            const body = {
+                project: vcSegmentEditor.project,
+                segment: vcSegmentEditor.segment,
+                kind: previewKind,
+                configs: (((vcSegmentEditor.data || {}).state || {}).configs || {})
+            };
+            const r = await fetch('/segment_editor_preview_api', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            const d = await r.json();
+            if (requestId !== vcSegmentEditor.previewRequestId) return;
+            if (!d.success) throw new Error(d.error || 'Falha ao gerar preview');
+            vcSetSegmentEditorPreview(d.message || 'Preview atualizado.', d.preview_url, false);
+        } catch (err) {
+            if (requestId !== vcSegmentEditor.previewRequestId) return;
+            vcSetSegmentEditorPreview('Erro no preview: ' + err.message, null, true);
+        }
+    }
+
+    function vcReadEditorInput(input) {
+        if (!input) return null;
+        if (input.type === 'checkbox') {
+            return input.dataset.intBool === '1' ? (input.checked ? 1 : 0) : input.checked;
+        }
+        if (input.dataset.ass === '1') return vcHexToAss(input.value);
+        if (input.type === 'number' || input.type === 'range') {
+            const n = Number(input.value);
+            return Number.isFinite(n) ? n : 0;
+        }
+        return input.value || '';
+    }
+
+    function vcScheduleSegmentEditorSave() {
+        if (vcSegmentEditor.saveTimer) clearTimeout(vcSegmentEditor.saveTimer);
+        vcSegmentEditorStatus('Salvando alteracoes...');
+        vcSegmentEditor.saveTimer = setTimeout(() => vcSaveSegmentEditorState(false), 650);
+    }
+
+    async function vcSaveSegmentEditorState(force) {
+        if (!vcSegmentEditor.data || vcSegmentEditor.saving) return vcSegmentEditor.data;
+        if (vcSegmentEditor.saveTimer) {
+            clearTimeout(vcSegmentEditor.saveTimer);
+            vcSegmentEditor.saveTimer = null;
+        }
+        vcSegmentEditor.saving = true;
+        try {
+            const body = {
+                project: vcSegmentEditor.project,
+                segment: vcSegmentEditor.segment,
+                configs: (((vcSegmentEditor.data || {}).state || {}).configs || {})
+            };
+            const r = await fetch('/segment_editor_save_api', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            const d = await r.json();
+            if (!d.success) throw new Error(d.error || 'Falha ao salvar');
+            vcSegmentEditor.data = d;
+            vcSegmentEditorStatus(force ? 'Alteracoes salvas.' : 'Salvo automaticamente.');
+            return d;
+        } catch (err) {
+            vcSegmentEditorStatus('Erro ao salvar: ' + err.message, true);
+            throw err;
+        } finally {
+            vcSegmentEditor.saving = false;
+        }
+    }
+
+    async function vcOpenSegmentEditor(projectAttr, segment, card) {
+        const project = decodeURIComponent(projectAttr || '');
+        vcSegmentEditor.project = project;
+        vcSegmentEditor.segment = Number(segment);
+        vcSegmentEditor.card = card || null;
+        const overlay = vcEnsureSegmentEditor();
+        overlay.style.display = 'flex';
+        overlay.innerHTML = '<div class="vc-segment-editor-modal" style="display:flex;align-items:center;justify-content:center;color:var(--vc-text);"><div class="vc-spin"></div><span style="margin-left:10px">Abrindo editor...</span></div>';
+        try {
+            const r = await fetch('/segment_editor_state_api?project=' + encodeURIComponent(project) + '&segment=' + encodeURIComponent(segment));
+            const d = await r.json();
+            if (!d.success) throw new Error(d.error || 'Falha ao abrir editor');
+            vcRenderSegmentEditor(d);
+        } catch (err) {
+            overlay.innerHTML = '<div class="vc-segment-editor-modal" style="padding:24px;color:var(--vc-error);"><button type="button" class="vc-segment-editor-close" style="float:right">' + vcIcon('x', 22) + '</button>Erro ao abrir editor: ' + vcEscapeHtml(err.message) + '</div>';
+        }
+    }
+
+    async function vcUploadSegmentEditorAsset(input) {
+        if (!input || !input.files || !input.files[0] || !vcSegmentEditor.data) return;
+        const config = input.getAttribute('data-config') || '';
+        const field = input.getAttribute('data-field') || '';
+        const fd = new FormData();
+        fd.append('project', vcSegmentEditor.project);
+        fd.append('segment', String(vcSegmentEditor.segment));
+        fd.append('config_key', config);
+        fd.append('field', field);
+        fd.append('file', input.files[0]);
+        vcSegmentEditorStatus('Enviando asset...');
+        input.disabled = true;
+        try {
+            const r = await fetch('/segment_editor_upload_asset_api', { method: 'POST', body: fd });
+            const d = await r.json();
+            if (!d.success) throw new Error(d.error || 'Falha no upload');
+            vcSegmentEditor.data = d;
+            const cfg = (((vcSegmentEditor.data || {}).state || {}).configs || {})[config] || {};
+            const value = vcDeepGet(cfg, field, d.path || '');
+            document.querySelectorAll(`#vc-segment-editor-overlay .vc-editor-input[data-config="${config}"][data-path="${field}"]`).forEach((el) => { el.value = value || ''; });
+            vcSegmentEditorStatus('Asset salvo para este video.');
+            if (['watermark', 'outro'].includes(config)) vcScheduleSegmentEditorPreview(config);
+        } catch (err) {
+            vcSegmentEditorStatus('Erro no upload: ' + err.message, true);
+        } finally {
+            input.disabled = false;
+            input.value = '';
+        }
+    }
+
+    async function vcRenderSegmentEditorVideo(btn) {
+        if (!vcSegmentEditor.data) return;
+        const old = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<div class="vc-spin" style="width:16px;height:16px;border-width:2px;border-top-color:#fff"></div><span>Renderizando...</span>';
+        }
+        try {
+            await vcSaveSegmentEditorState(true);
+            vcSegmentEditorStatus('Renderizando este video...');
+            const body = {
+                project: vcSegmentEditor.project,
+                segment: vcSegmentEditor.segment,
+                configs: (((vcSegmentEditor.data || {}).state || {}).configs || {})
+            };
+            const r = await fetch('/segment_editor_render_api', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            const d = await r.json();
+            if (!d.success) throw new Error(d.error || 'Falha ao renderizar');
+            vcSegmentEditor.data = d;
+            const root = document.getElementById('vc-segment-editor-overlay');
+            vcReloadVideoInCard(root, d.video_url, d.download_name);
+            let card = vcSegmentEditor.card;
+            if (!card) card = document.querySelector('.viral-card[data-segment="' + vcSegmentEditor.segment + '"]');
+            vcReloadVideoInCard(card, d.video_url, d.download_name);
+            if (d.features) vcSyncFeatureButtons(card, d.features);
+            vcSegmentEditorStatus('Renderizado e salvo como arquivo final.');
+            vcScheduleSegmentEditorPreview(vcSegmentEditor.activeTab || 'subtitle');
+        } catch (err) {
+            vcSegmentEditorStatus('Erro ao renderizar: ' + err.message, true);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = old;
+            }
+        }
+    }
+
+    document.body.addEventListener('click', (e) => {
+        const openBtn = e.target.closest('.segment-editor-open-btn');
+        if (openBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            let card = openBtn.closest('.viral-card') || openBtn.parentElement;
+            while (card && !card.querySelector('video')) card = card.parentElement;
+            vcOpenSegmentEditor(openBtn.getAttribute('data-project') || '', openBtn.getAttribute('data-segment') || '0', card);
+            return;
+        }
+        const closeBtn = e.target.closest('.vc-segment-editor-close');
+        if (closeBtn || e.target.id === 'vc-segment-editor-overlay') {
+            const overlay = document.getElementById('vc-segment-editor-overlay');
+            if (overlay) overlay.style.display = 'none';
+            return;
+        }
+        const tab = e.target.closest('.vc-segment-editor-tab');
+        if (tab) {
+            const key = tab.getAttribute('data-editor-tab');
+            const root = document.getElementById('vc-segment-editor-overlay');
+            if (!root) return;
+            root.querySelectorAll('.vc-segment-editor-tab').forEach((el) => el.classList.toggle('active', el === tab));
+            root.querySelectorAll('.vc-segment-editor-panel').forEach((el) => el.classList.toggle('active', el.getAttribute('data-editor-panel') === key));
+            vcSegmentEditor.activeTab = key || 'subtitle';
+            vcScheduleSegmentEditorPreview(vcSegmentEditor.activeTab);
+            return;
+        }
+        const renderBtn = e.target.closest('.vc-segment-editor-render');
+        if (renderBtn) {
+            e.preventDefault();
+            vcRenderSegmentEditorVideo(renderBtn);
+        }
+    }, true);
+
+    document.body.addEventListener('input', (e) => {
+        const input = e.target.closest('.vc-editor-input');
+        if (!input || !vcSegmentEditor.data) return;
+        const config = input.getAttribute('data-config');
+        const path = input.getAttribute('data-path');
+        const configs = ((vcSegmentEditor.data.state || {}).configs || {});
+        if (!configs[config]) configs[config] = {};
+        vcDeepSet(configs[config], path, vcReadEditorInput(input));
+        vcScheduleSegmentEditorSave();
+        if (['subtitle', 'watermark', 'outro'].includes(config)) vcScheduleSegmentEditorPreview(config);
+    }, true);
+
+    document.body.addEventListener('change', (e) => {
+        const fileInput = e.target.closest('.vc-editor-file');
+        if (fileInput) {
+            vcUploadSegmentEditorAsset(fileInput);
+            return;
+        }
+        const input = e.target.closest('.vc-editor-input');
+        if (!input || !vcSegmentEditor.data) return;
+        const config = input.getAttribute('data-config');
+        const path = input.getAttribute('data-path');
+        const configs = ((vcSegmentEditor.data.state || {}).configs || {});
+        if (!configs[config]) configs[config] = {};
+        vcDeepSet(configs[config], path, vcReadEditorInput(input));
+        vcScheduleSegmentEditorSave();
+        if (['subtitle', 'watermark', 'outro'].includes(config)) vcScheduleSegmentEditorPreview(config);
+    }, true);
+
     document.body.addEventListener("click", async (e) => {
         const btn = e.target.closest('.apply-feature-btn');
         if (!btn) return;
@@ -2526,6 +3087,301 @@ if __name__ == "__main__":
                 "download_name": os.path.basename(path),
             }
 
+        def _safe_project_path(project):
+            safe_project = os.path.basename(project or "")
+            project_path = os.path.join(VIRALS_DIR, safe_project)
+            if not safe_project or not os.path.exists(project_path):
+                return None, safe_project
+            return project_path, safe_project
+
+        def _segment_record(project_path, segment):
+            viral_path = os.path.join(project_path, "viral_segments.txt")
+            data = {}
+            if os.path.exists(viral_path):
+                try:
+                    with open(viral_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                except Exception:
+                    data = {}
+            segments = data.get("segments", []) if isinstance(data.get("segments"), list) else []
+            if 0 <= int(segment) < len(segments) and isinstance(segments[int(segment)], dict):
+                return segments[int(segment)]
+            return {}
+
+        def _editor_video_for_segment(project_path, segment, json_path=None):
+            if json_path:
+                rendered_video = _rendered_video_for_json(project_path, json_path)
+                if rendered_video:
+                    return rendered_video
+            try:
+                seg = _segment_record(project_path, segment)
+                return library._find_segment_video(project_path, int(segment), seg)
+            except Exception:
+                return None
+
+        def _base_video_for_segment(project_path, segment):
+            try:
+                segment = int(segment)
+                seg = _segment_record(project_path, segment)
+                idx_str = f"{segment:03d}"
+                base_name = library._safe_segment_base_name(segment, seg)
+
+                candidates = []
+                raw_path = seg.get("filepath")
+                if raw_path:
+                    raw_candidates = [raw_path]
+                    if not os.path.isabs(raw_path):
+                        raw_candidates.append(os.path.join(project_path, raw_path))
+                    for raw_candidate in raw_candidates:
+                        if raw_candidate and "burned_sub" not in os.path.normpath(raw_candidate).split(os.sep):
+                            candidates.append(raw_candidate)
+
+                search_groups = [
+                    [
+                        os.path.join(project_path, "final", f"{base_name}.mp4"),
+                        os.path.join(project_path, "final", f"final-output{idx_str}_processed.mp4"),
+                        os.path.join(project_path, f"final-output{idx_str}_processed.mp4"),
+                    ],
+                    [
+                        os.path.join(project_path, "cuts", f"{base_name}_original_scale.mp4"),
+                        os.path.join(project_path, "cuts", f"{base_name}.mp4"),
+                        os.path.join(project_path, "cuts", f"output{idx_str}_original_scale.mp4"),
+                        os.path.join(project_path, "cuts", f"segment_{idx_str}.mp4"),
+                        os.path.join(project_path, "cuts", f"{idx_str}.mp4"),
+                        os.path.join(project_path, f"output{idx_str}_original_scale.mp4"),
+                        os.path.join(project_path, f"output{idx_str}.mp4"),
+                    ],
+                ]
+                if candidates:
+                    found = library._newest_existing(candidates)
+                    if found:
+                        return found
+                for group in search_groups:
+                    found = library._newest_existing(group)
+                    if found:
+                        return found
+                for folder_name in ("final", "cuts"):
+                    folder = os.path.join(project_path, folder_name)
+                    if not os.path.isdir(folder):
+                        continue
+                    found = library._newest_existing([
+                        os.path.join(folder, f)
+                        for f in os.listdir(folder)
+                        if f.lower().endswith(".mp4") and (f.startswith(f"{idx_str}_") or f"output{idx_str}" in f)
+                    ])
+                    if found:
+                        return found
+            except Exception:
+                pass
+            return _editor_video_for_segment(project_path, segment)
+
+        def _segment_editor_payload(project_path, safe_project, segment, state, json_path=None):
+            seg = _segment_record(project_path, segment)
+            video_path = _editor_video_for_segment(project_path, segment, json_path)
+            applied_features = {}
+            try:
+                applied_features = render_state.get_segment_features(project_path, int(segment))
+            except Exception:
+                pass
+            return {
+                "success": True,
+                "project": safe_project,
+                "segment": int(segment),
+                "title": seg.get("title", f"Segmento {int(segment) + 1}"),
+                "buffer_start_used": int(seg.get("buffer_start_used", seg.get("buffer_seconds", 0)) or 0),
+                "buffer_end_used": int(seg.get("buffer_end_used", seg.get("buffer_seconds", 0)) or 0),
+                "state": state,
+                "applied_features": applied_features,
+                **_video_payload(video_path),
+            }
+
+        def _set_nested_value(data, dotted_key, value):
+            cur = data
+            parts = str(dotted_key or "").split(".")
+            for part in parts[:-1]:
+                nxt = cur.get(part)
+                if not isinstance(nxt, dict):
+                    nxt = {}
+                    cur[part] = nxt
+                cur = nxt
+            if parts:
+                cur[parts[-1]] = value
+
+        def _safe_uploaded_name(filename):
+            base, ext = os.path.splitext(filename or "asset")
+            safe_base = re.sub(r"[^A-Za-z0-9_-]", "_", base).strip("_") or "asset"
+            safe_ext = re.sub(r"[^A-Za-z0-9.]", "", ext.lower()) or ".bin"
+            return f"{safe_base}_{int(time.time())}_{uuid.uuid4().hex[:8]}{safe_ext}"
+
+        def _asset_category_for_field(field):
+            if field in {"audio_file_path", "outro_music.audio_file_path"}:
+                return "audio"
+            if field == "watermark_image_path":
+                return "watermark"
+            return "outro"
+
+        @fastapi_app.get("/segment_editor_state_api")
+        def segment_editor_state_api(project: str, segment: int):
+            try:
+                project_path, safe_project = _safe_project_path(project)
+                if not project_path:
+                    return {"success": False, "error": f"Projeto nÃ£o encontrado: {safe_project}"}
+                state = segment_editor_state.get_segment_state(project_path, int(segment), create=True)
+                try:
+                    from scripts.polish_segment_subs import find_segment_json
+                    json_path = find_segment_json(project_path, int(segment))
+                except Exception:
+                    json_path = None
+                return _segment_editor_payload(project_path, safe_project, int(segment), state, json_path)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return {"success": False, "error": str(e)}
+
+        @fastapi_app.post("/segment_editor_save_api")
+        def segment_editor_save_api(payload: dict = Body(...)):
+            try:
+                project_path, safe_project = _safe_project_path(payload.get("project"))
+                if not project_path:
+                    return {"success": False, "error": f"Projeto nÃ£o encontrado: {safe_project}"}
+                segment = int(payload.get("segment", 0))
+                current = segment_editor_state.get_segment_state(project_path, segment, create=True)
+                configs = payload.get("configs") if isinstance(payload.get("configs"), dict) else current.get("configs", {})
+                features = segment_editor_state.features_from_configs(configs)
+                state = segment_editor_state.update_segment_state(project_path, segment, configs=configs, features=features)
+                return _segment_editor_payload(project_path, safe_project, segment, state)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return {"success": False, "error": str(e)}
+
+        @fastapi_app.post("/segment_editor_preview_api")
+        def segment_editor_preview_api(payload: dict = Body(...)):
+            try:
+                project_path, safe_project = _safe_project_path(payload.get("project"))
+                if not project_path:
+                    return {"success": False, "error": f"Projeto nao encontrado: {safe_project}"}
+                segment = int(payload.get("segment", 0))
+                kind = str(payload.get("kind") or "subtitle")
+                current = segment_editor_state.get_segment_state(project_path, segment, create=True)
+                configs = payload.get("configs") if isinstance(payload.get("configs"), dict) else current.get("configs", {})
+                configs = segment_editor_state.normalize_configs(project_path, configs)
+
+                try:
+                    from scripts.polish_segment_subs import find_segment_json
+                    json_path = find_segment_json(project_path, segment)
+                except Exception:
+                    json_path = None
+
+                preview_path = segment_editor_preview.render_preview(
+                    project_path,
+                    segment,
+                    kind,
+                    configs,
+                    video_path=_base_video_for_segment(project_path, segment),
+                    json_path=json_path,
+                )
+                preview_url = _video_url_for_path(preview_path)
+                if not preview_url:
+                    return {"success": False, "error": "Preview gerado fora da pasta VIRALS."}
+                labels = {
+                    "subtitle": "Preview da legenda atualizado.",
+                    "watermark": "Preview da marca d'agua atualizado.",
+                    "outro": "Preview do Outro atualizado.",
+                }
+                return {
+                    "success": True,
+                    "project": safe_project,
+                    "segment": segment,
+                    "kind": kind,
+                    "preview_url": preview_url,
+                    "message": labels.get(kind, "Preview atualizado."),
+                }
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return {"success": False, "error": str(e)}
+
+        @fastapi_app.post("/segment_editor_render_api")
+        def segment_editor_render_api(payload: dict = Body(...)):
+            try:
+                project_path, safe_project = _safe_project_path(payload.get("project"))
+                if not project_path:
+                    return {"success": False, "error": f"Projeto nÃ£o encontrado: {safe_project}"}
+                segment = int(payload.get("segment", 0))
+                current = segment_editor_state.get_segment_state(project_path, segment, create=True)
+                configs = payload.get("configs") if isinstance(payload.get("configs"), dict) else current.get("configs", {})
+                features = segment_editor_state.features_from_configs(configs)
+                state = segment_editor_state.update_segment_state(project_path, segment, configs=configs, features=features)
+
+                from scripts.polish_segment_subs import find_segment_json
+                json_path = find_segment_json(project_path, segment)
+                if not json_path:
+                    return {"success": False, "error": f"Sem JSON de legenda para o segmento {segment}."}
+
+                from subtitle_editor import render_specific_video
+                msg = render_specific_video(json_path, feature_overrides=features, config_overrides=state.get("configs", {}))
+                if not (isinstance(msg, str) and msg.strip().lower().startswith("success")):
+                    return {"success": False, "error": msg or "Falha ao renderizar."}
+
+                applied_features = render_state.get_segment_features(project_path, segment)
+                state = segment_editor_state.update_segment_state(project_path, segment, configs=state.get("configs", {}), features=applied_features)
+                return {
+                    **_segment_editor_payload(project_path, safe_project, segment, state, json_path),
+                    "message": msg,
+                    "features": applied_features,
+                }
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return {"success": False, "error": str(e)}
+
+        @fastapi_app.post("/segment_editor_upload_asset_api")
+        async def segment_editor_upload_asset_api(
+            project: str = Form(...),
+            segment: int = Form(...),
+            config_key: str = Form(...),
+            field: str = Form(...),
+            file: UploadFile = File(...),
+        ):
+            try:
+                project_path, safe_project = _safe_project_path(project)
+                if not project_path:
+                    return {"success": False, "error": f"Projeto nÃ£o encontrado: {safe_project}"}
+                if config_key not in {"watermark", "audio", "outro"}:
+                    return {"success": False, "error": f"Config invÃ¡lida: {config_key}"}
+
+                category = _asset_category_for_field(field)
+                target_dir = os.path.join(WEBUI_ASSETS_DIR, category)
+                os.makedirs(target_dir, exist_ok=True)
+                target_name = _safe_uploaded_name(file.filename)
+                target_path = os.path.join(target_dir, target_name)
+                content = await file.read()
+                if not content:
+                    return {"success": False, "error": "Arquivo vazio."}
+                with open(target_path, "wb") as f:
+                    f.write(content)
+
+                rel_path = os.path.relpath(target_path, WORKING_DIR).replace("\\", "/")
+                current = segment_editor_state.get_segment_state(project_path, int(segment), create=True)
+                configs = current.get("configs", {})
+                cfg = configs.get(config_key) if isinstance(configs.get(config_key), dict) else {}
+                cfg = copy.deepcopy(cfg)
+                _set_nested_value(cfg, field, rel_path)
+                configs[config_key] = cfg
+                features = segment_editor_state.features_from_configs(configs)
+                state = segment_editor_state.update_segment_state(project_path, int(segment), configs=configs, features=features)
+                return {
+                    **_segment_editor_payload(project_path, safe_project, int(segment), state),
+                    "path": rel_path,
+                    "config_key": config_key,
+                    "field": field,
+                }
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return {"success": False, "error": str(e)}
+
         def _polish_and_rerender(project_folder, json_path):
             """Polish one subtitle JSON and re-burn the corresponding video.
             Returns a dict with success/error."""
@@ -2542,6 +3398,17 @@ if __name__ == "__main__":
             try:
                 from subtitle_editor import render_specific_video
                 render_msg = render_specific_video(json_path)
+                if isinstance(render_msg, str) and render_msg.strip().lower().startswith("success"):
+                    seg_index = _segment_index_from_json(json_path)
+                    if seg_index is not None:
+                        features = render_state.get_segment_features(project_folder, seg_index)
+                        state = segment_editor_state.default_segment_state(project_folder, seg_index)
+                        segment_editor_state.update_segment_state(
+                            project_folder,
+                            seg_index,
+                            configs=state.get("configs", {}),
+                            features=features,
+                        )
             except Exception as e:
                 return {
                     "success": False,
@@ -2760,6 +3627,17 @@ if __name__ == "__main__":
                         return {"success": False, "error": f"Re-render failed: {render_err}"}
                     if not (isinstance(render_msg, str) and render_msg.strip().lower().startswith("success")):
                         return {"success": False, "error": render_msg or "Re-render failed."}
+                    try:
+                        features = render_state.get_segment_features(project_path, segment)
+                        state = segment_editor_state.default_segment_state(project_path, segment)
+                        segment_editor_state.update_segment_state(
+                            project_path,
+                            segment,
+                            configs=state.get("configs", {}),
+                            features=features,
+                        )
+                    except Exception as editor_state_err:
+                        print(f"[segment_editor_state] nao foi possivel sincronizar estado do buffer: {editor_state_err}")
 
                 seg["start_time"] = new_start
                 seg["end_time"] = new_end
@@ -2860,6 +3738,16 @@ if __name__ == "__main__":
                 if isinstance(msg, str) and msg.strip().lower().startswith("success"):
                     rendered_video = _rendered_video_for_json(project_path, json_path)
                     features = render_state.get_segment_features(project_path, segment)
+                    try:
+                        state = segment_editor_state.default_segment_state(project_path, segment)
+                        segment_editor_state.update_segment_state(
+                            project_path,
+                            segment,
+                            configs=state.get("configs", {}),
+                            features=features,
+                        )
+                    except Exception as editor_state_err:
+                        print(f"[segment_editor_state] nao foi possivel sincronizar estado: {editor_state_err}")
                     return {"success": True, "message": msg, "features": features, **_video_payload(rendered_video)}
                 return {"success": False, "error": msg or "Falha ao renderizar."}
             except Exception as e:

@@ -439,6 +439,13 @@ def generate_project_gallery(project_path_name, is_full_path=False):
             except Exception:
                 polish_btn = ""
 
+            try:
+                proj_name_edit = urllib.parse.quote(os.path.basename(project_path_name), safe="")
+                edit_title = html.escape(i18n("Editar este vídeo"), quote=True)
+                edit_btn = f'<button type="button" class="segment-editor-open-btn" data-project="{proj_name_edit}" data-segment="{i}" style="color: var(--vc-text-muted); display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s; cursor: pointer; background: transparent; border: none; margin: 0;" title="{edit_title}" aria-label="{edit_title}" onmouseover="this.style.color=\'var(--vc-primary-deep)\'" onmouseout="this.style.color=\'var(--vc-text-muted)\'">{icon("edit", 22)}</button>'
+            except Exception:
+                edit_btn = ""
+
             # Buffer/Margin Control (only if original times exist)
             buffer_control_html = ""
             has_buffer_data = "original_start_time" in seg
@@ -543,6 +550,7 @@ def generate_project_gallery(project_path_name, is_full_path=False):
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <span style="font-size: 28px; font-weight: 900; line-height: 1; color: {score_color}; font-family: sans-serif;">{score}</span>
                         <div style="display: flex; align-items: center; gap: 4px;">
+                            {edit_btn}
                             {polish_btn}
                             {download_link}
                         </div>

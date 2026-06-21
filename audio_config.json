@@ -1,7 +1,7 @@
 {
     "enabled": true,
-    "audio_file_path": "WEBUI_ASSETS/audio/Irai-vos_Mas_N_o_Pequeis_1781401449_debe29bd.mp3",
-    "base_volume": 12,
+    "audio_file_path": "WEBUI_ASSETS/audio/Fissura_de_Vidro_1781485065_16a11ef5.mp3",
+    "base_volume": 10,
     "source_video_volume": 200.0,
     "loop_to_end": true,
     "fade_in_duration": 0,
