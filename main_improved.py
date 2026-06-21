@@ -587,6 +587,7 @@ def main():
         applied_audio_bgm = False
         applied_outro_music = False
         applied_source_volume = False
+        applied_outro_cfg = None
 
         # 6.5 Apply Watermark
         if args.watermark_config and os.path.exists(args.watermark_config):
@@ -629,6 +630,8 @@ def main():
                     )
                     # Só marca como embutido se algum vídeo foi de fato processado
                     applied_outro = bool(outro_count)
+                    if applied_outro:
+                        applied_outro_cfg = outro_cfg
             except Exception as e:
                 print(f"Error applying outro: {e}")
 
@@ -646,6 +649,12 @@ def main():
                 should_apply_audio = audio_cfg.get("enabled", False) or abs(source_video_volume - 100.0) > 0.001 or outro_music_enabled
                 if should_apply_audio:
                     from scripts import apply_audio
+                    if applied_outro_cfg:
+                        audio_cfg["_vc_outro_enabled"] = True
+                        audio_cfg["_vc_outro_video_path"] = applied_outro_cfg.get("outro_video_path")
+                        audio_cfg["_vc_outro_fade_duration"] = applied_outro_cfg.get("fade_duration", 1.0)
+                    else:
+                        audio_cfg["_vc_disable_outro_sync"] = True
                     if burn_subtitles_option and os.path.exists(os.path.join(project_folder, "burned_sub")):
                         audio_src_folder = os.path.join(project_folder, "burned_sub")
                     else:

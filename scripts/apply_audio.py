@@ -65,6 +65,18 @@ def get_outro_sync_info(config):
     if bool(config.get("_vc_disable_outro_sync", False)):
         return False, 0.0, 1.0
 
+    if "_vc_outro_enabled" in config:
+        outro_enabled = bool(config.get("_vc_outro_enabled", False))
+        outro_video_dur = 0.0
+        outro_video = resolve_asset_path(config.get("_vc_outro_video_path"))
+        if outro_enabled and outro_video:
+            outro_video_dur = get_video_duration(outro_video)
+        try:
+            outro_fade_dur = float(config.get("_vc_outro_fade_duration", 1.0))
+        except (TypeError, ValueError):
+            outro_fade_dur = 1.0
+        return outro_enabled, outro_video_dur, outro_fade_dur
+
     outro_config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "outro_config.json")
     outro_video_dur = 0.0
     outro_fade_dur = 1.0
@@ -117,7 +129,21 @@ def build_volume_expression(video_dur, base_volume, ending_active, ending_vol, e
     return expr
 
 
-def apply_source_volume_only(input_video, source_volume_factor, output_video):
+def build_source_volume_expression(video_dur, source_volume_factor, outro_enabled, outro_video_dur, outro_fade_dur):
+    if not outro_enabled or outro_video_dur <= 0:
+        return f"{source_volume_factor}", False
+
+    start = max(0.0, video_dur - outro_video_dur)
+    fade = max(0.0, min(float(outro_fade_dur or 0.0), video_dur - start))
+    if fade <= 0:
+        return f"if(lt(t,{start}),{source_volume_factor},1.0)", True
+
+    end = start + fade
+    expr = f"if(lt(t,{start}),{source_volume_factor},if(lt(t,{end}),{source_volume_factor}+(1.0-{source_volume_factor})*(t-{start})/{fade},1.0))"
+    return expr, True
+
+
+def apply_source_volume_only(input_video, source_volume_factor, output_video, config=None):
     if abs(source_volume_factor - 1.0) <= 0.0001:
         try:
             shutil.copy2(input_video, output_video)
@@ -135,13 +161,20 @@ def apply_source_volume_only(input_video, source_volume_factor, output_video):
             print(f"Error copying {input_video} to {output_video}: {e}")
             return False
 
+    video_dur = get_video_duration(input_video)
+    outro_enabled, outro_video_dur, outro_fade_dur = get_outro_sync_info(config or {})
+    source_vol_expr, source_vol_eval = build_source_volume_expression(
+        video_dur, source_volume_factor, outro_enabled, outro_video_dur, outro_fade_dur
+    )
+    audio_filter = f"volume='{source_vol_expr}':eval=frame" if source_vol_eval else f"volume={source_vol_expr}"
+
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
         "-i", input_video,
         "-map", "0:v",
         "-map", "0:a",
         "-c:v", "copy",
-        "-af", f"volume={source_volume_factor}",
+        "-af", audio_filter,
         "-c:a", "aac", "-b:a", "192k",
         output_video
     ]
@@ -170,7 +203,7 @@ def apply_audio_to_video(input_video, audio_path, config, output_video):
     has_outro_music = outro_music_enabled and bool(outro_music_path)
 
     if not has_bgm_audio and not has_outro_music:
-        return apply_source_volume_only(input_video, source_volume_factor, output_video)
+        return apply_source_volume_only(input_video, source_volume_factor, output_video, config)
 
     encoder, preset = get_best_encoder()
 
@@ -190,6 +223,9 @@ def apply_audio_to_video(input_video, audio_path, config, output_video):
 
     # --- Read Outro video config for sync ---
     outro_enabled, outro_video_dur, outro_fade_dur = get_outro_sync_info(config)
+    source_vol_expr, source_vol_eval = build_source_volume_expression(
+        video_dur, source_volume_factor, outro_enabled, outro_video_dur, outro_fade_dur
+    )
 
     # Calculate the transition point where Outro begins
     # total = main + outro - fade  →  transition_point = total - outro_dur
@@ -290,7 +326,10 @@ def apply_audio_to_video(input_video, audio_path, config, output_video):
     # 1. Original audio (source video)
     if has_original_audio:
         if abs(source_volume_factor - 1.0) > 0.0001:
-            filter_parts.append(f"[0:a]volume={source_volume_factor}[orig]")
+            if source_vol_eval:
+                filter_parts.append(f"[0:a]volume='{source_vol_expr}':eval=frame[orig]")
+            else:
+                filter_parts.append(f"[0:a]volume={source_vol_expr}[orig]")
             mix_labels.append("[orig]")
         else:
             mix_labels.append("[0:a]")

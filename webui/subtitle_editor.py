@@ -198,7 +198,7 @@ def list_editable_files(project_dir):
     files = [f for f in os.listdir(subs_dir) if f.endswith('_processed.json')]
     return sorted(files)
 
-def render_specific_video(json_full_path, feature_overrides=None):
+def render_specific_video(json_full_path, feature_overrides=None, config_overrides=None):
     """
     1. Regenerate ASS for this specific JSON file.
     2. Burn ASS into the corresponding Video file.
@@ -208,6 +208,13 @@ def render_specific_video(json_full_path, feature_overrides=None):
 
     project_folder = os.path.dirname(os.path.dirname(json_full_path)) # ../../ from subs/file.json
     requested_features = _normalize_render_features(feature_overrides)
+    segment_configs = None
+    if isinstance(config_overrides, dict):
+        try:
+            import segment_editor_state
+        except ImportError:
+            from webui import segment_editor_state
+        segment_configs = segment_editor_state.normalize_configs(project_folder, config_overrides)
     
     # Identify key paths
     filename = os.path.basename(json_full_path)
@@ -296,7 +303,10 @@ def render_specific_video(json_full_path, feature_overrides=None):
         if not os.path.exists(config_path):
              config_path = None
         
-        config = get_subtitle_config(config_path)
+        if segment_configs and isinstance(segment_configs.get("subtitle"), dict):
+            config = copy.deepcopy(segment_configs["subtitle"])
+        else:
+            config = get_subtitle_config(config_path)
         # print(f"DEBUG: Loaded subt config: H={config.get('highlight_color')} B={config.get('base_color')}")
         # Ensure 'uppercase' exists as it's not in default config of main_improved
         config['uppercase'] = config.get('uppercase', False)
@@ -327,30 +337,45 @@ def render_specific_video(json_full_path, feature_overrides=None):
                  
                  # Watermark
                  watermark_cfg_path = os.path.join(root_dir, "watermark_config.json")
-                 if os.path.exists(watermark_cfg_path):
+                 if segment_configs and isinstance(segment_configs.get("watermark"), dict):
+                     wm_cfg = copy.deepcopy(segment_configs["watermark"])
+                 elif os.path.exists(watermark_cfg_path):
                      with open(watermark_cfg_path, "r", encoding="utf-8") as f:
                          wm_cfg = json.load(f)
-                     if wm_cfg.get("enabled", False) and _feature_requested(requested_features, "watermark"):
-                         from scripts import apply_watermark
-                         apply_watermark.process_all_videos(temp_proc_dir, wm_cfg, temp_proc_dir)
+                 else:
+                     wm_cfg = None
+                 if wm_cfg and wm_cfg.get("enabled", False) and _feature_requested(requested_features, "watermark"):
+                     from scripts import apply_watermark
+                     apply_watermark.process_all_videos(temp_proc_dir, wm_cfg, temp_proc_dir)
                  
                  # Outro
+                 outro_for_audio = None
                  outro_cfg_path = os.path.join(root_dir, "outro_config.json")
-                 if os.path.exists(outro_cfg_path):
+                 if segment_configs and isinstance(segment_configs.get("outro"), dict):
+                     outro_cfg = copy.deepcopy(segment_configs["outro"])
+                 elif os.path.exists(outro_cfg_path):
                      with open(outro_cfg_path, "r", encoding="utf-8") as f:
                          outro_cfg = json.load(f)
-                     if outro_cfg.get("enabled", False) and _feature_requested(requested_features, "outro"):
-                         from scripts import append_outro
-                         append_outro.process_all_videos(temp_proc_dir, outro_cfg, temp_proc_dir)
+                 else:
+                     outro_cfg = None
+                 if outro_cfg and outro_cfg.get("enabled", False) and _feature_requested(requested_features, "outro"):
+                     from scripts import append_outro
+                     if append_outro.process_all_videos(temp_proc_dir, outro_cfg, temp_proc_dir):
+                         outro_for_audio = copy.deepcopy(outro_cfg)
                          
                  # Audio Overlay
                  # Aplica se a BGM estiver ativa, OU se o volume original ≠ 100%,
                  # OU se a música de encerramento estiver ativa (espelha main_improved
                  # e garante que "Volume Original" e "Música de Encerramento" sejam aplicados).
                  audio_cfg_path = os.path.join(root_dir, "audio_config.json")
-                 if os.path.exists(audio_cfg_path):
+                 if segment_configs and isinstance(segment_configs.get("audio"), dict):
+                     audio_cfg = copy.deepcopy(segment_configs["audio"])
+                 elif os.path.exists(audio_cfg_path):
                      with open(audio_cfg_path, "r", encoding="utf-8") as f:
                          audio_cfg = json.load(f)
+                 else:
+                     audio_cfg = None
+                 if audio_cfg:
                      if requested_features is not None:
                          audio_cfg = copy.deepcopy(audio_cfg)
                          if not requested_features.get("audio_bgm", False):
@@ -362,8 +387,12 @@ def render_specific_video(json_full_path, feature_overrides=None):
                                  audio_cfg["outro_music"] = om_cfg
                          if not requested_features.get("source_volume", False):
                              audio_cfg["source_video_volume"] = 100.0
-                         if not requested_features.get("outro", False):
-                             audio_cfg["_vc_disable_outro_sync"] = True
+                     if outro_for_audio:
+                         audio_cfg["_vc_outro_enabled"] = True
+                         audio_cfg["_vc_outro_video_path"] = outro_for_audio.get("outro_video_path")
+                         audio_cfg["_vc_outro_fade_duration"] = outro_for_audio.get("fade_duration", 1.0)
+                     else:
+                         audio_cfg["_vc_disable_outro_sync"] = True
                      try:
                          src_vol = float(audio_cfg.get("source_video_volume", 200.0))
                      except (TypeError, ValueError):
@@ -396,7 +425,14 @@ def render_specific_video(json_full_path, feature_overrides=None):
                  idx_match = re.search(r"^(\d+)_", base_name) or re.search(r"output(\d+)", base_name)
                  if idx_match:
                      seg_index = int(idx_match.group(1))
-                     features_to_record = render_state.compute_enabled_features(root_dir)
+                     if segment_configs:
+                         try:
+                             import segment_editor_state
+                         except ImportError:
+                             from webui import segment_editor_state
+                         features_to_record = segment_editor_state.features_from_configs(segment_configs)
+                     else:
+                         features_to_record = render_state.compute_enabled_features(root_dir)
                      if requested_features is not None:
                          for key in _RENDER_FEATURE_KEYS:
                              features_to_record[key] = bool(features_to_record.get(key, False)) and bool(requested_features.get(key, False))
