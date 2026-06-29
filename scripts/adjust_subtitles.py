@@ -83,16 +83,32 @@ def generate_ass_from_file(input_path, output_path, project_folder,
         return
 
     # 4. Generate Content
+    # Ancoragem pelo TOPO do bloco: a primeira linha fica sempre na posicao da
+    # linha unica e as linhas extras descem a partir dela. O padrao do ASS
+    # ancora pela base (alinhamentos 1/2/3), o que empurra as linhas de cima
+    # para cima quando ha 2+ linhas. Convertendo para os alinhamentos de topo
+    # (7/8/9) o bloco passa a crescer para baixo.
+    #
+    # O controle "vertical_position" continua significando "distancia a partir
+    # do rodape" (mesmo numero e mesma direcao de sempre); aqui ele e' apenas
+    # convertido para margem do topo, compensando a altura de uma linha para que
+    # uma legenda de 1 linha caia exatamente onde caia antes.
+    play_res_y = 640
+    align_base = int(alignment)
+    line_height = round(float(base_size) * 1.2)
+    top_alignment = 7 + ((align_base - 1) % 3)  # 1/2/3 (rodape) -> 7/8/9 (topo)
+    top_margin_v = max(0, int(round(play_res_y - float(vertical_position) - line_height)))
+
     header_ass = f"""[Script Info]
 Title: Dynamic Subtitles
 ScriptType: v4.00+
 PlayDepth: 0
 PlayResX: 360
-PlayResY: 640
+PlayResY: {play_res_y}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font},{base_size},{base_color},&H00000000,{outline_color},{shadow_color},{bold},{italic},{underline},{strikeout},100,100,0,0,{border_style},{outline_thickness},{shadow_size},{alignment},{margin_h},{margin_h},{vertical_position},1
+Style: Default,{font},{base_size},{base_color},&H00000000,{outline_color},{shadow_color},{bold},{italic},{underline},{strikeout},100,100,0,0,{border_style},{outline_thickness},{shadow_size},{top_alignment},{margin_h},{margin_h},{top_margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

@@ -1524,6 +1524,8 @@ _global_js = """
         const configs = state.configs || {};
         const title = vcEscapeHtml(data.title || ('Segmento ' + ((data.segment || 0) + 1)));
         const videoSrc = data.video_url ? vcCacheBust(data.video_url) : '';
+        const bufStart = vcBufferValue((data || {}).buffer_start_used || 0);
+        const bufEnd = vcBufferValue((data || {}).buffer_end_used || 0);
         overlay.innerHTML = `
             <div class="vc-segment-editor-modal" role="dialog" aria-modal="true">
                 <div class="vc-segment-editor-head">
@@ -1555,6 +1557,7 @@ _global_js = """
                             <button type="button" class="vc-segment-editor-tab" data-editor-tab="watermark">${vcIcon('droplet', 16)}Marca</button>
                             <button type="button" class="vc-segment-editor-tab" data-editor-tab="audio">${vcIcon('music', 16)}Audio</button>
                             <button type="button" class="vc-segment-editor-tab" data-editor-tab="outro">${vcIcon('film', 16)}Outro</button>
+                            <button type="button" class="vc-segment-editor-tab" data-editor-tab="margin">${vcIcon('scissors', 16)}Margem</button>
                         </div>
                         <div class="vc-segment-editor-panels">
                             <section class="vc-segment-editor-panel active" data-editor-panel="subtitle">
@@ -1639,6 +1642,27 @@ _global_js = """
                                     ${vcEditorInput('outro','rounded_corners','Bordas (%)','number',10,'min="0" max="50" step="1"')}
                                 </div>
                             </section>
+                            <section class="vc-segment-editor-panel" data-editor-panel="margin">
+                                <div class="vc-editor-section-title">Margem de seguranca</div>
+                                <p style="font-size:12px;color:var(--vc-text-muted);margin:0 0 14px;line-height:1.5;">Quantos segundos entram antes e depois do corte limpo da IA. Positivo amplia o trecho, negativo apara. Reprocessa este video a partir do material original e re-renderiza mantendo os ajustes das outras abas.</p>
+                                <div class="vc-editor-grid">
+                                    <label class="vc-editor-field">
+                                        <span>Inicio (s) <span style="color:var(--vc-text-muted);font-weight:400;">+ antes / - apara</span></span>
+                                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                                            <input type="number" class="buffer-start-input" id="vc-editor-buf-start" min="-600" max="600" step="1" value="${bufStart}" style="width:90px;text-align:center;" title="+ amplia para antes, - corta o inicio" onchange="if(window.vcUpdateBufferSaldo)window.vcUpdateBufferSaldo(this)" oninput="if(window.vcClampBufferInput)window.vcClampBufferInput(this)">
+                                            <span class="saldo-start" style="font-size:11px;color:var(--vc-text-muted);white-space:nowrap;">(saldo: ${5 - bufStart}s)</span>
+                                        </div>
+                                    </label>
+                                    <label class="vc-editor-field">
+                                        <span>Final (s) <span style="color:var(--vc-text-muted);font-weight:400;">+ depois / - apara</span></span>
+                                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                                            <input type="number" class="buffer-end-input" id="vc-editor-buf-end" min="-600" max="600" step="1" value="${bufEnd}" style="width:90px;text-align:center;" title="+ amplia depois, - corta o final" onchange="if(window.vcUpdateBufferSaldo)window.vcUpdateBufferSaldo(this)" oninput="if(window.vcClampBufferInput)window.vcClampBufferInput(this)">
+                                            <span class="saldo-end" style="font-size:11px;color:var(--vc-text-muted);white-space:nowrap;">(saldo: ${5 - bufEnd}s)</span>
+                                        </div>
+                                    </label>
+                                </div>
+                                <button type="button" class="vc-editor-buffer-btn" style="margin-top:14px;padding:9px 14px;background:var(--vc-grad);color:#fff;font-weight:800;border:0;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;">${vcIcon('refresh', 16)}<span>Reprocessar margem</span></button>
+                            </section>
                         </div>
                     </div>
                 </div>
@@ -1721,7 +1745,10 @@ _global_js = """
         if (!vcSegmentEditor.data) return;
         const previewKind = vcPreviewKindForTab(kind || vcSegmentEditor.activeTab || 'subtitle');
         if (previewKind === 'audio') {
-            vcSetSegmentEditorPreview('A aba Audio ainda nao tem preview visual. Os ajustes continuam salvos por video.', null, false);
+            const msg = (vcSegmentEditor.activeTab === 'margin')
+                ? 'A aba Margem reprocessa o corte a partir do material original. Use o botao "Reprocessar margem" para aplicar.'
+                : 'A aba Audio ainda nao tem preview visual. Os ajustes continuam salvos por video.';
+            vcSetSegmentEditorPreview(msg, null, false);
             return;
         }
         const requestId = ++vcSegmentEditor.previewRequestId;
@@ -1887,6 +1914,61 @@ _global_js = """
         }
     }
 
+    async function vcReprocessSegmentEditorMargin(btn) {
+        if (!vcSegmentEditor.data) return;
+        const root = document.getElementById('vc-segment-editor-overlay');
+        const startInput = root ? root.querySelector('#vc-editor-buf-start') : null;
+        const endInput = root ? root.querySelector('#vc-editor-buf-end') : null;
+        if (!startInput || !endInput) return;
+        const bufStart = vcBufferValue(startInput.value);
+        const bufEnd = vcBufferValue(endInput.value);
+        const old = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<div class="vc-spin" style="width:16px;height:16px;border-width:2px;border-top-color:#fff"></div><span>Reprocessando...</span>';
+        }
+        startInput.disabled = true;
+        endInput.disabled = true;
+        try {
+            vcSegmentEditorStatus('Reprocessando margem deste video...');
+            const body = {
+                project: vcSegmentEditor.project,
+                segment: vcSegmentEditor.segment,
+                buffer_start: bufStart,
+                buffer_end: bufEnd,
+                configs: (((vcSegmentEditor.data || {}).state || {}).configs || {})
+            };
+            const r = await fetch('/segment_editor_buffer_api', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            const d = await r.json();
+            if (!d.success) throw new Error(d.error || 'Falha ao reprocessar margem');
+            vcSegmentEditor.data = d;
+            if (d.buffer_start_used !== undefined) startInput.value = d.buffer_start_used;
+            if (d.buffer_end_used !== undefined) endInput.value = d.buffer_end_used;
+            window.vcUpdateBufferSaldo(startInput);
+            window.vcUpdateBufferSaldo(endInput);
+            vcReloadVideoInCard(root, d.video_url, d.download_name);
+            let card = vcSegmentEditor.card;
+            if (!card) card = document.querySelector('.viral-card[data-segment="' + vcSegmentEditor.segment + '"]');
+            vcReloadVideoInCard(card, d.video_url, d.download_name);
+            if (d.features) vcSyncFeatureButtons(card, d.features);
+            vcSegmentEditorStatus('Margem aplicada e video renderizado.');
+            vcScheduleSegmentEditorPreview(vcSegmentEditor.activeTab || 'subtitle');
+        } catch (err) {
+            vcSegmentEditorStatus('Erro ao reprocessar margem: ' + err.message, true);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = old;
+            }
+            startInput.disabled = false;
+            endInput.disabled = false;
+        }
+    }
+
     document.body.addEventListener('click', (e) => {
         const openBtn = e.target.closest('.segment-editor-open-btn');
         if (openBtn) {
@@ -1912,6 +1994,12 @@ _global_js = """
             root.querySelectorAll('.vc-segment-editor-panel').forEach((el) => el.classList.toggle('active', el.getAttribute('data-editor-panel') === key));
             vcSegmentEditor.activeTab = key || 'subtitle';
             vcScheduleSegmentEditorPreview(vcSegmentEditor.activeTab);
+            return;
+        }
+        const marginBtn = e.target.closest('.vc-editor-buffer-btn');
+        if (marginBtn) {
+            e.preventDefault();
+            vcReprocessSegmentEditorMargin(marginBtn);
             return;
         }
         const renderBtn = e.target.closest('.vc-segment-editor-render');
@@ -3480,144 +3568,178 @@ if __name__ == "__main__":
             except Exception as e:
                 return {"success": False, "error": str(e)}
 
+        def _recut_segment_buffer(project_path, segment, buffer_start, buffer_end):
+            """Re-cut one segment from input.mp4 with signed start/end margin
+            adjustments, re-crop it to 9:16 in final/, re-cut the subtitle JSON and
+            persist the new times + margin to viral_segments.txt. Does NOT burn
+            subtitles or touch the per-segment editor state -- callers render
+            afterwards so they choose which configs to apply. Returns a dict with
+            the paths/times or {"success": False, "error": ...}."""
+            import subprocess as sp
+
+            adjust_limit = 600
+            buffer_start = max(-adjust_limit, min(adjust_limit, int(buffer_start)))
+            buffer_end = max(-adjust_limit, min(adjust_limit, int(buffer_end)))
+
+            # 1. Load viral_segments.txt
+            json_path = os.path.join(project_path, "viral_segments.txt")
+            if not os.path.exists(json_path):
+                return {"success": False, "error": "viral_segments.txt not found."}
+
+            with open(json_path, "r", encoding="utf-8") as f:
+                segments_data = json.load(f)
+
+            segments_list = segments_data.get("segments", [])
+            if segment < 0 or segment >= len(segments_list):
+                return {"success": False, "error": f"Segment index {segment} out of range (0-{len(segments_list)-1})."}
+
+            seg = segments_list[segment]
+
+            # Require original timestamps
+            original_start = seg.get("original_start_time")
+            original_end = seg.get("original_end_time")
+            if original_start is None or original_end is None:
+                return {"success": False, "error": "Segment missing original_start_time/original_end_time. Re-process the project first."}
+            try:
+                original_start = float(original_start)
+                original_end = float(original_end)
+            except (TypeError, ValueError):
+                return {"success": False, "error": "Invalid original_start_time/original_end_time values."}
+
+            # Calculate new buffered times (independent start/end)
+            new_start = max(0, original_start - buffer_start)
+            new_end = original_end + buffer_end
+            new_duration = new_end - new_start
+            if new_duration <= 0.05:
+                return {"success": False, "error": "Ajuste inválido: o corte ficaria sem duração."}
+
+            # 2. Re-cut the raw video from input.mp4
+            input_video = os.path.join(project_path, "input.mp4")
+            if not os.path.exists(input_video):
+                input_video_legacy = os.path.join(project_path, "input_video.mp4")
+                if os.path.exists(input_video_legacy):
+                    input_video = input_video_legacy
+                else:
+                    return {"success": False, "error": "input.mp4 not found in project folder."}
+
+            # Determine filenames (same logic as cut_segments.py)
+            title = seg.get("title", f"Segment_{segment}")
+            safe_title = "".join([c for c in title if c.isalnum() or c in " _-"]).strip()
+            safe_title = safe_title.replace(" ", "_")[:60]
+            base_name = f"{segment:03d}_{safe_title}"
+
+            cuts_folder = os.path.join(project_path, "cuts")
+            os.makedirs(cuts_folder, exist_ok=True)
+            output_video = os.path.join(cuts_folder, f"{base_name}_original_scale.mp4")
+
+            # Check NVENC
+            try:
+                enc_result = sp.run(["ffmpeg", "-encoders"], capture_output=True, text=True)
+                video_codec = "h264_nvenc" if "h264_nvenc" in enc_result.stdout else "libx264"
+            except Exception:
+                video_codec = "libx264"
+
+            # Read outro pad duration
+            outro_config_path = os.path.join(WORKING_DIR, "outro_config.json")
+            pad_duration = 0.0
+            if os.path.exists(outro_config_path):
+                try:
+                    with open(outro_config_path, "r", encoding="utf-8") as f:
+                        outro_cfg = json.load(f)
+                    if outro_cfg.get("enabled", False):
+                        pad_duration = float(outro_cfg.get("fade_duration", 0.0))
+                except Exception:
+                    pass
+
+            video_duration = max(0.05, new_duration + pad_duration)
+
+            cmd = [
+                "ffmpeg", "-y",
+                "-loglevel", "error", "-hide_banner",
+                "-ss", f"{new_start:.3f}",
+                "-i", input_video,
+                "-t", f"{video_duration:.3f}",
+                "-c:v", video_codec
+            ]
+            if video_codec == "h264_nvenc":
+                cmd.extend(["-preset", "p1", "-b:v", "5M"])
+            else:
+                cmd.extend(["-preset", "ultrafast", "-crf", "23"])
+            cmd.extend(["-c:a", "aac", "-b:a", "128k", output_video])
+
+            result = sp.run(cmd, check=False, capture_output=True, text=True)
+            if result.returncode != 0:
+                return {"success": False, "error": f"ffmpeg re-cut failed: {result.stderr or result.stdout}"}
+
+            # 2b. Re-cropar ESTE segmento para o 9:16 vertical em final/ usando os
+            # novos pontos de corte. Sem isso, render_specific_video acharia o crop
+            # ANTIGO em final/ e o vídeo renderizado não mudaria de verdade.
+            try:
+                from scripts import edit_video
+                final_folder = os.path.join(project_path, "final")
+                os.makedirs(final_folder, exist_ok=True)
+                temp_no_audio = os.path.join(final_folder, f"temp_video_no_audio_{segment}.mp4")
+                edit_video.generate_short_fallback(
+                    output_video, temp_no_audio, segment, project_path, final_folder, no_face_mode="zoom"
+                )
+                generated_final = os.path.join(final_folder, f"final-output{segment:03d}_processed.mp4")
+                final_target = os.path.join(final_folder, f"{base_name}.mp4")
+                if os.path.exists(generated_final):
+                    if os.path.exists(final_target):
+                        os.remove(final_target)
+                    os.rename(generated_final, final_target)
+                else:
+                    return {"success": False, "error": f"Re-crop did not generate {os.path.basename(generated_final)}."}
+            except Exception as crop_err:
+                return {"success": False, "error": f"Re-crop failed: {crop_err}"}
+
+            # 3. Re-cut subtitle JSON
+            input_json_path = os.path.join(project_path, "input.json")
+            subs_folder = os.path.join(project_path, "subs")
+            os.makedirs(subs_folder, exist_ok=True)
+            json_output_path = os.path.join(subs_folder, f"{base_name}_processed.json")
+
+            if os.path.exists(input_json_path):
+                from scripts.cut_json import cut_json_transcript
+                cut_json_transcript(input_json_path, json_output_path, new_start, new_end)
+
+            # 4. Persist the new cut points + margin to viral_segments.txt
+            seg["start_time"] = new_start
+            seg["end_time"] = new_end
+            seg["duration"] = new_duration
+            seg["buffer_start_used"] = buffer_start
+            seg["buffer_end_used"] = buffer_end
+
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(segments_data, f, ensure_ascii=False, indent=2)
+
+            return {
+                "success": True,
+                "json_output_path": json_output_path,
+                "final_target": final_target,
+                "output_video": output_video,
+                "new_start": new_start,
+                "new_end": new_end,
+                "new_duration": new_duration,
+                "buffer_start_used": buffer_start,
+                "buffer_end_used": buffer_end,
+            }
+
         @fastapi_app.get("/adjust_buffer_api")
         def adjust_buffer_api(project: str, segment: int, buffer_start: int, buffer_end: int):
-            """Re-cut a segment with signed start/end adjustments."""
+            """Re-cut a segment with signed start/end adjustments (library card)."""
             try:
-                import subprocess as sp
-
-                adjust_limit = 600
-                buffer_start = max(-adjust_limit, min(adjust_limit, int(buffer_start)))
-                buffer_end = max(-adjust_limit, min(adjust_limit, int(buffer_end)))
-
                 safe_project = os.path.basename(project)
                 project_path = os.path.join(VIRALS_DIR, safe_project)
                 if not os.path.exists(project_path):
                     return {"success": False, "error": f"Project not found: {safe_project}"}
 
-                # 1. Load and update viral_segments.txt
-                json_path = os.path.join(project_path, "viral_segments.txt")
-                if not os.path.exists(json_path):
-                    return {"success": False, "error": "viral_segments.txt not found."}
+                recut = _recut_segment_buffer(project_path, int(segment), buffer_start, buffer_end)
+                if not recut.get("success"):
+                    return recut
 
-                with open(json_path, "r", encoding="utf-8") as f:
-                    segments_data = json.load(f)
-
-                segments_list = segments_data.get("segments", [])
-                if segment < 0 or segment >= len(segments_list):
-                    return {"success": False, "error": f"Segment index {segment} out of range (0-{len(segments_list)-1})."}
-
-                seg = segments_list[segment]
-
-                # Require original timestamps
-                original_start = seg.get("original_start_time")
-                original_end = seg.get("original_end_time")
-                if original_start is None or original_end is None:
-                    return {"success": False, "error": "Segment missing original_start_time/original_end_time. Re-process the project first."}
-                try:
-                    original_start = float(original_start)
-                    original_end = float(original_end)
-                except (TypeError, ValueError):
-                    return {"success": False, "error": "Invalid original_start_time/original_end_time values."}
-
-                # Calculate new buffered times (independent start/end)
-                new_start = max(0, original_start - buffer_start)
-                new_end = original_end + buffer_end
-                new_duration = new_end - new_start
-                if new_duration <= 0.05:
-                    return {"success": False, "error": "Ajuste inválido: o corte ficaria sem duração."}
-
-                # 2. Re-cut the raw video from input.mp4
-                input_video = os.path.join(project_path, "input.mp4")
-                if not os.path.exists(input_video):
-                    input_video_legacy = os.path.join(project_path, "input_video.mp4")
-                    if os.path.exists(input_video_legacy):
-                        input_video = input_video_legacy
-                    else:
-                        return {"success": False, "error": "input.mp4 not found in project folder."}
-
-                # Determine filenames (same logic as cut_segments.py)
-                title = seg.get("title", f"Segment_{segment}")
-                safe_title = "".join([c for c in title if c.isalnum() or c in " _-"]).strip()
-                safe_title = safe_title.replace(" ", "_")[:60]
-                base_name = f"{segment:03d}_{safe_title}"
-
-                cuts_folder = os.path.join(project_path, "cuts")
-                os.makedirs(cuts_folder, exist_ok=True)
-                output_video = os.path.join(cuts_folder, f"{base_name}_original_scale.mp4")
-
-                # Check NVENC
-                try:
-                    enc_result = sp.run(["ffmpeg", "-encoders"], capture_output=True, text=True)
-                    video_codec = "h264_nvenc" if "h264_nvenc" in enc_result.stdout else "libx264"
-                except Exception:
-                    video_codec = "libx264"
-
-                # Read outro pad duration
-                outro_config_path = os.path.join(WORKING_DIR, "outro_config.json")
-                pad_duration = 0.0
-                if os.path.exists(outro_config_path):
-                    try:
-                        with open(outro_config_path, "r", encoding="utf-8") as f:
-                            outro_cfg = json.load(f)
-                        if outro_cfg.get("enabled", False):
-                            pad_duration = float(outro_cfg.get("fade_duration", 0.0))
-                    except Exception:
-                        pass
-
-                video_duration = max(0.05, new_duration + pad_duration)
-
-                cmd = [
-                    "ffmpeg", "-y",
-                    "-loglevel", "error", "-hide_banner",
-                    "-ss", f"{new_start:.3f}",
-                    "-i", input_video,
-                    "-t", f"{video_duration:.3f}",
-                    "-c:v", video_codec
-                ]
-                if video_codec == "h264_nvenc":
-                    cmd.extend(["-preset", "p1", "-b:v", "5M"])
-                else:
-                    cmd.extend(["-preset", "ultrafast", "-crf", "23"])
-                cmd.extend(["-c:a", "aac", "-b:a", "128k", output_video])
-
-                result = sp.run(cmd, check=False, capture_output=True, text=True)
-                if result.returncode != 0:
-                    return {"success": False, "error": f"ffmpeg re-cut failed: {result.stderr or result.stdout}"}
-
-                # 2b. Re-cropar ESTE segmento para o 9:16 vertical em final/ usando os
-                # novos pontos de corte. Sem isso, render_specific_video acharia o crop
-                # ANTIGO em final/ e o vídeo renderizado não mudaria de verdade.
-                try:
-                    from scripts import edit_video
-                    final_folder = os.path.join(project_path, "final")
-                    os.makedirs(final_folder, exist_ok=True)
-                    temp_no_audio = os.path.join(final_folder, f"temp_video_no_audio_{segment}.mp4")
-                    edit_video.generate_short_fallback(
-                        output_video, temp_no_audio, segment, project_path, final_folder, no_face_mode="zoom"
-                    )
-                    generated_final = os.path.join(final_folder, f"final-output{segment:03d}_processed.mp4")
-                    final_target = os.path.join(final_folder, f"{base_name}.mp4")
-                    if os.path.exists(generated_final):
-                        if os.path.exists(final_target):
-                            os.remove(final_target)
-                        os.rename(generated_final, final_target)
-                    else:
-                        return {"success": False, "error": f"Re-crop did not generate {os.path.basename(generated_final)}."}
-                except Exception as crop_err:
-                    return {"success": False, "error": f"Re-crop failed: {crop_err}"}
-
-                # 3. Re-cut subtitle JSON
-                input_json_path = os.path.join(project_path, "input.json")
-                subs_folder = os.path.join(project_path, "subs")
-                os.makedirs(subs_folder, exist_ok=True)
-                json_output_path = os.path.join(subs_folder, f"{base_name}_processed.json")
-
-                if os.path.exists(input_json_path):
-                    from scripts.cut_json import cut_json_transcript
-                    cut_json_transcript(input_json_path, json_output_path, new_start, new_end)
-
-                # 4. Re-render burned subtitles (includes watermark, outro, audio)
+                json_output_path = recut["json_output_path"]
+                # Re-render burned subtitles (includes watermark, outro, audio)
                 if os.path.exists(json_output_path):
                     try:
                         from subtitle_editor import render_specific_video
@@ -3628,41 +3750,80 @@ if __name__ == "__main__":
                     if not (isinstance(render_msg, str) and render_msg.strip().lower().startswith("success")):
                         return {"success": False, "error": render_msg or "Re-render failed."}
                     try:
-                        features = render_state.get_segment_features(project_path, segment)
-                        state = segment_editor_state.default_segment_state(project_path, segment)
+                        features = render_state.get_segment_features(project_path, int(segment))
+                        state = segment_editor_state.default_segment_state(project_path, int(segment))
                         segment_editor_state.update_segment_state(
                             project_path,
-                            segment,
+                            int(segment),
                             configs=state.get("configs", {}),
                             features=features,
                         )
                     except Exception as editor_state_err:
                         print(f"[segment_editor_state] nao foi possivel sincronizar estado do buffer: {editor_state_err}")
 
-                seg["start_time"] = new_start
-                seg["end_time"] = new_end
-                seg["duration"] = new_duration
-                seg["buffer_start_used"] = buffer_start
-                seg["buffer_end_used"] = buffer_end
-
-                with open(json_path, "w", encoding="utf-8") as f:
-                    json.dump(segments_data, f, ensure_ascii=False, indent=2)
-
                 rendered_video = _rendered_video_for_json(project_path, json_output_path)
                 if not rendered_video:
-                    rendered_video = final_target if os.path.exists(final_target) else output_video
+                    final_target = recut.get("final_target")
+                    rendered_video = final_target if final_target and os.path.exists(final_target) else recut["output_video"]
 
                 return {
                     "success": True,
-                    "message": f"Buffer adjusted: start={buffer_start}s, end={buffer_end}s",
-                    "new_start": round(new_start, 3),
-                    "new_end": round(new_end, 3),
-                    "new_duration": round(new_duration, 3),
-                    "buffer_start_used": buffer_start,
-                    "buffer_end_used": buffer_end,
+                    "message": f"Buffer adjusted: start={recut['buffer_start_used']}s, end={recut['buffer_end_used']}s",
+                    "new_start": round(recut["new_start"], 3),
+                    "new_end": round(recut["new_end"], 3),
+                    "new_duration": round(recut["new_duration"], 3),
+                    "buffer_start_used": recut["buffer_start_used"],
+                    "buffer_end_used": recut["buffer_end_used"],
                     **_video_payload(rendered_video),
                 }
 
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return {"success": False, "error": str(e)}
+
+        @fastapi_app.post("/segment_editor_buffer_api")
+        def segment_editor_buffer_api(payload: dict = Body(...)):
+            """Re-cut a segment with a new safety margin from the unified editor,
+            re-rendering with THIS video's per-segment configs so the editor's
+            customizations (subtitle style, watermark, audio, outro) survive the
+            re-cut -- unlike the library card, which resets to defaults."""
+            try:
+                project_path, safe_project = _safe_project_path(payload.get("project"))
+                if not project_path:
+                    return {"success": False, "error": f"Projeto nao encontrado: {safe_project}"}
+                segment = int(payload.get("segment", 0))
+                try:
+                    buffer_start = int(payload.get("buffer_start", 0) or 0)
+                    buffer_end = int(payload.get("buffer_end", 0) or 0)
+                except (TypeError, ValueError):
+                    return {"success": False, "error": "Margem invalida."}
+
+                current = segment_editor_state.get_segment_state(project_path, segment, create=True)
+                configs = payload.get("configs") if isinstance(payload.get("configs"), dict) else current.get("configs", {})
+                features = segment_editor_state.features_from_configs(configs)
+                state = segment_editor_state.update_segment_state(project_path, segment, configs=configs, features=features)
+
+                recut = _recut_segment_buffer(project_path, segment, buffer_start, buffer_end)
+                if not recut.get("success"):
+                    return recut
+
+                json_output_path = recut["json_output_path"]
+                if not os.path.exists(json_output_path):
+                    return {"success": False, "error": f"Sem JSON de legenda para o segmento {segment}."}
+
+                from subtitle_editor import render_specific_video
+                msg = render_specific_video(json_output_path, feature_overrides=features, config_overrides=state.get("configs", {}))
+                if not (isinstance(msg, str) and msg.strip().lower().startswith("success")):
+                    return {"success": False, "error": msg or "Falha ao renderizar."}
+
+                applied_features = render_state.get_segment_features(project_path, segment)
+                state = segment_editor_state.update_segment_state(project_path, segment, configs=state.get("configs", {}), features=applied_features)
+                return {
+                    **_segment_editor_payload(project_path, safe_project, segment, state, json_output_path),
+                    "message": msg,
+                    "features": applied_features,
+                }
             except Exception as e:
                 import traceback
                 traceback.print_exc()
