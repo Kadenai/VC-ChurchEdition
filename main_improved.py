@@ -9,7 +9,6 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import json
-import shutil
 import subprocess
 import argparse
 import time
@@ -165,8 +164,9 @@ def main():
     parser.add_argument("--themes", help="Comma-separated themes (if not viral mode)")
     parser.add_argument("--burn-only", action="store_true", help="Skip processing and only burn subtitles")
     parser.add_argument("--min-duration", type=int, default=60, help="Minimum segment duration (seconds)")
-    parser.add_argument("--max-duration", type=int, default=120, help="Maximum segment duration (seconds)")
+    parser.add_argument("--max-duration", type=int, default=140, help="Maximum segment duration (seconds)")
     parser.add_argument("--ai-duration", action="store_true", help="A IA decide a duração: sem mínimo; --max-duration vira teto de segurança")
+    parser.add_argument("--hook-mode", action="store_true", help="Usa o prompt alternativo (prompt_hook.txt) focado em gancho no primeiro segundo")
     parser.add_argument("--model", default="large-v3-turbo", help="Whisper model to use")
     parser.add_argument("--language", default="pt", help="Default transcription language code (e.g. 'pt', 'en')")
     
@@ -437,7 +437,8 @@ def main():
                         project_folder=project_folder,
                         chunk_size_arg=args.chunk_size,
                         model_name_arg=args.ai_model_name,
-                        ai_duration=args.ai_duration
+                        ai_duration=args.ai_duration,
+                        hook_mode=args.hook_mode
                     )
 
                 if viral_segments and viral_segments.get("paused_for_manual"):
@@ -713,6 +714,7 @@ def main():
                     "backend": "gemini",
                     "model_name": used_ai_model,
                     "viral_mode": viral_mode,
+                    "hook_mode": args.hook_mode,
                     "themes": themes,
                     "num_segments": num_segments,
                     "chunk_size": args.chunk_size
@@ -736,31 +738,6 @@ def main():
             
         except Exception as e:
             print(i18n("Error saving configuration JSON: {}").format(e))
-        # -------------------------------------
-
-        # -------------------------------------
-        # Exportação final (Cortes IPB): Desktop no Windows; pasta no Drive no Colab
-        try:
-            from scripts.export_paths import get_cortes_ipb_dir
-            cortes_ipb_dir = get_cortes_ipb_dir(os.path.dirname(os.path.abspath(__file__)))
-            os.makedirs(cortes_ipb_dir, exist_ok=True)
-            
-            export_source = os.path.join(project_folder, "burned_sub")
-            if workflow_choice == "2" or not burn_subtitles_option:
-                export_source = os.path.join(project_folder, "final")
-                if not os.path.exists(export_source):
-                    export_source = os.path.join(project_folder, "cuts")
-            
-            if os.path.exists(export_source):
-                exported_count = 0
-                for f in os.listdir(export_source):
-                    if f.endswith(('.mp4', '.mkv', '.avi', '.mov')):
-                        shutil.copy2(os.path.join(export_source, f), os.path.join(cortes_ipb_dir, f))
-                        exported_count += 1
-                if exported_count > 0:
-                    print(f"\n[SUCESSO] {exported_count} vídeos exportados para 'Cortes IPB' em: {cortes_ipb_dir}")
-        except Exception as e:
-            print(f"[AVISO] Não foi possível copiar para 'Cortes IPB': {e}")
         # -------------------------------------
 
         print(i18n("Process completed! Check your results in: {}").format(project_folder))

@@ -683,7 +683,7 @@ def process_segments(raw_segments, transcript_segments, min_duration, max_durati
     return final_result
 
 
-def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode="manual", api_key=None, project_folder="tmp", chunk_size_arg=None, model_name_arg=None, ai_duration=False):
+def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode="manual", api_key=None, project_folder="tmp", chunk_size_arg=None, model_name_arg=None, ai_duration=False, hook_mode=False):
     quantidade_de_virals = num_segments
 
     # 1. Load Transcript
@@ -696,7 +696,14 @@ def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode
     # Load Config and Prompt
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     config_path = os.path.join(base_dir, 'api_config.json')
-    prompt_path = os.path.join(base_dir, 'prompt.txt')
+    # Modo gancho: usa o prompt alternativo focado no primeiro segundo do corte.
+    prompt_path = os.path.join(base_dir, 'prompt_hook.txt' if hook_mode else 'prompt.txt')
+    if hook_mode:
+        if os.path.exists(prompt_path):
+            print("[INFO] Modo Gancho ativado: usando prompt_hook.txt.")
+        else:
+            print("Aviso: prompt_hook.txt não encontrado. Usando prompt.txt padrão.")
+            prompt_path = os.path.join(base_dir, 'prompt.txt')
 
     config = {
         "selected_api": "gemini",

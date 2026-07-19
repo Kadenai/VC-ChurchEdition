@@ -484,7 +484,7 @@ def _infer_processing_status(logs, tick=0):
     return _processing_status_html("running", title=title, messages=PROCESSING_MESSAGES)
 
 
-def run_viral_cutter(input_source, project_name, url, video_file, segments, viral, themes, min_duration, max_duration, ai_duration, model, manual_mode, api_key, ai_model_name, chunk_size, workflow,
+def run_viral_cutter(input_source, project_name, url, video_file, segments, viral, hook_mode, themes, min_duration, max_duration, ai_duration, model, manual_mode, api_key, ai_model_name, chunk_size, workflow,
                      use_custom_subs, font_name, font_size, font_color, highlight_color, outline_color, outline_thickness, shadow_color, shadow_size, is_bold, is_italic, is_uppercase, vertical_pos, margin_h, alignment,
                      h_size, w_block, gap, mode, under, strike, border_s, remove_punc, video_quality, use_youtube_subs):
 
@@ -506,7 +506,7 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
     # --- SAVE UI STATE ---
     ui_state_to_save = {
         "video_quality": video_quality, "use_youtube_subs": use_youtube_subs,
-        "segments": segments, "viral": viral, "themes": themes, "min_duration": min_duration, "max_duration": max_duration, "ai_duration": ai_duration,
+        "segments": segments, "viral": viral, "hook_mode": hook_mode, "themes": themes, "min_duration": min_duration, "max_duration": max_duration, "ai_duration": ai_duration,
         "model": model, "manual_mode": manual_mode, "ai_model_name": ai_model_name, "chunk_size": chunk_size, "workflow": workflow,
         "font_name": font_name, "font_size": font_size, "font_color": font_color, "highlight_color": highlight_color,
         "outline_color": outline_color, "outline_thickness": outline_thickness, "shadow_color": shadow_color,
@@ -575,6 +575,7 @@ def run_viral_cutter(input_source, project_name, url, video_file, segments, vira
         
     cmd.extend(["--segments", str(int(segments))])
     if viral: cmd.append("--viral")
+    if hook_mode: cmd.append("--hook-mode")
     if themes: cmd.extend(["--themes", themes])
     cmd.extend(["--min-duration", str(int(min_duration))])
     cmd.extend(["--max-duration", str(int(max_duration))])
@@ -790,9 +791,10 @@ DEFAULT_UI_SETTINGS = {
     "use_youtube_subs": False,
     "segments": 12,
     "viral": True,
+    "hook_mode": False,
     "themes": "",
     "min_duration": 60,
-    "max_duration": 100,
+    "max_duration": 140,
     "ai_duration": True,
     "model": "large-v3-turbo",
     "manual_mode": False,
@@ -838,7 +840,7 @@ def load_ui_state():
 
 def save_ui_settings_live(video_quality, use_youtube_subs, segments, viral, themes,
                           min_duration, max_duration, ai_duration, model, manual_mode,
-                          ai_model_name, chunk_size, workflow, margin_h, **extra):
+                          ai_model_name, chunk_size, workflow, margin_h, hook_mode, **extra):
     """Salva ao vivo o que o usuário mudou — vira o novo padrão na próxima abertura."""
     data = load_ui_state()
     data.update({
@@ -847,6 +849,7 @@ def save_ui_settings_live(video_quality, use_youtube_subs, segments, viral, them
         "min_duration": min_duration, "max_duration": max_duration, "ai_duration": ai_duration,
         "model": model, "manual_mode": manual_mode, "ai_model_name": ai_model_name,
         "chunk_size": chunk_size, "workflow": workflow, "margin_h": margin_h,
+        "hook_mode": hook_mode,
     })
     data.update(extra)
     try:
@@ -2117,10 +2120,11 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition")) as demo:
     with gr.Group(visible=False) as startup_cleanup_banner:
         gr.Markdown(i18n(
             "## Limpar arquivos antigos?\n"
-            "Encontrei projetos e temporários de execuções anteriores. Quer apagar agora para "
-            "começar limpo? A pasta **Cortes IPB** (seus vídeos finais), seus **assets**, as "
-            "**configurações** e a **chave de API** não serão tocados."
+            "Encontrei projetos e temporários parados há mais de **2 semanas**. Quer apagar agora "
+            "para liberar espaço? Seus **assets**, as **configurações** e a **chave de API** não "
+            "serão tocados."
         ))
+        startup_cleanup_targets = gr.State([])
         startup_cleanup_box = gr.Textbox(label=i18n("O que pode ser apagado"), lines=8, interactive=False)
         with gr.Row():
             startup_cleanup_yes = gr.Button(i18n("Sim, limpar agora"), variant="stop")
@@ -2162,11 +2166,12 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition")) as demo:
                         viral_input = gr.Checkbox(label=i18n("Deixar a IA escolher os melhores trechos"), value=ui_state.get("viral", True))
                     themes_input = gr.Textbox(label=i18n("Temas (opcional)"), placeholder=i18n("ex.: fé, família, esperança"), visible=False, value=ui_state.get("themes", ""))
                     viral_input.change(lambda x: gr.update(visible=not x), viral_input, themes_input)
+                    hook_mode_input = gr.Checkbox(label=i18n("Gancho no 1º segundo (experimental)"), value=ui_state.get("hook_mode", False), info=i18n("Prioriza cortes que começam com frase polêmica ou inesperada (ex.: \"Pastor, fazer tatuagem é pecado?\"). Desmarcado = prompt clássico."))
                     _ai_dur_initial = bool(ui_state.get("ai_duration", False))
                     ai_duration_input = gr.Checkbox(label=i18n("Deixar a IA decidir a duração de cada corte"), value=_ai_dur_initial, info=i18n("Recomendado. Se desligar, você define a duração mínima e máxima abaixo."))
                     with gr.Row():
                         min_dur_input = gr.Number(label=i18n("Duração mínima (segundos)"), value=ui_state.get("min_duration", 60), visible=not _ai_dur_initial)
-                        max_dur_input = gr.Number(label=(i18n("Teto de segurança (s)") if _ai_dur_initial else i18n("Duração máxima (segundos)")), value=ui_state.get("max_duration", 120))
+                        max_dur_input = gr.Number(label=(i18n("Teto de segurança (s)") if _ai_dur_initial else i18n("Duração máxima (segundos)")), value=ui_state.get("max_duration", 140))
                     def _toggle_ai_duration(ai):
                         # Quando a IA decide: não há mínimo — escondemos o campo Mín
                         # (sinal visível de que mudou); o Máx continua como teto de segurança.
@@ -2364,7 +2369,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition")) as demo:
              _settings_components = [
                  video_quality_input, use_youtube_subs_input, segments_input, viral_input, themes_input,
                  min_dur_input, max_dur_input, ai_duration_input, model_input, manual_mode_input,
-                 ai_model_input, chunk_size_input, workflow_input, margin_h_input,
+                 ai_model_input, chunk_size_input, workflow_input, margin_h_input, hook_mode_input,
              ]
              gr.on(
                  triggers=[c.change for c in _settings_components],
@@ -2391,6 +2396,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition")) as demo:
                      gr.update(value=d["chunk_size"]),
                      gr.update(value=d["workflow"]),
                      gr.update(value=d["margin_h"]),
+                     gr.update(value=d["hook_mode"]),
                  )
 
              gr.HTML(styles.step_badge(4, i18n("Gerar")))
@@ -2487,7 +2493,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition")) as demo:
              
              # MUST pass all all new inputs to the run function
              start_btn.click(run_viral_cutter, inputs=[
-                 input_source, project_selector, url_input, video_upload, segments_input, viral_input, themes_input, min_dur_input, max_dur_input, ai_duration_input,
+                 input_source, project_selector, url_input, video_upload, segments_input, viral_input, hook_mode_input, themes_input, min_dur_input, max_dur_input, ai_duration_input,
                  model_input, manual_mode_input, api_key_input, ai_model_input, chunk_size_input, workflow_input,
                  use_custom_subs,
                  # Subtitle styling inputs
@@ -3040,8 +3046,8 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition")) as demo:
             with gr.Accordion(i18n("Limpar Lixo (arquivos gerados)"), open=False):
                 gr.Markdown(i18n(
                     "Apaga **todos os projetos em VIRALS**, vídeos de teste, temporários e previews. "
-                    "**NÃO** apaga a pasta 'Cortes IPB' (seus vídeos finais), os assets enviados "
-                    "(outro/logo/música), as configurações nem a chave de API.\n\n"
+                    "**NÃO** apaga os assets enviados (outro/logo/música), as configurações nem a "
+                    "chave de API.\n\n"
                     "**Passo 1:** clique em *Analisar* para ver o que será apagado. "
                     "**Passo 2:** confirme em *Apagar tudo*."
                 ))
@@ -3071,19 +3077,27 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition")) as demo:
         def _startup_cleanup_check():
             global _startup_cleanup_asked
             if _startup_cleanup_asked:
-                return gr.update(visible=False), ""
+                return gr.update(visible=False), "", []
             _startup_cleanup_asked = True
-            text, targets = library.preview_garbage()
-            return gr.update(visible=bool(targets)), (text if targets else "")
-        demo.load(_startup_cleanup_check, outputs=[startup_cleanup_banner, startup_cleanup_box], queue=False, show_progress="hidden")
+            text, targets = library.preview_stale_garbage()
+            return gr.update(visible=bool(targets)), text, targets
+        demo.load(
+            _startup_cleanup_check,
+            outputs=[startup_cleanup_banner, startup_cleanup_box, startup_cleanup_targets],
+            queue=False, show_progress="hidden",
+        )
 
-        def _startup_clean_yes():
-            return library.clean_garbage(), gr.update(visible=False)
+        def _startup_clean_yes(targets):
+            return library.clean_garbage(targets), gr.update(visible=False)
         startup_cleanup_yes.click(
-            _startup_clean_yes, outputs=[startup_cleanup_status, startup_cleanup_banner]
+            _startup_clean_yes, inputs=startup_cleanup_targets,
+            outputs=[startup_cleanup_status, startup_cleanup_banner]
         ).then(library.refresh_projects, outputs=project_dropdown, queue=False, show_progress="hidden")
 
-        startup_cleanup_no.click(lambda: gr.update(visible=False), outputs=startup_cleanup_banner, queue=False)
+        def _startup_clean_no():
+            library.snooze_cleanup()
+            return gr.update(visible=False)
+        startup_cleanup_no.click(_startup_clean_no, outputs=startup_cleanup_banner, queue=False)
     
     gr.HTML(f"""
         <div style='text-align: center; font-size: 0.85em; color: #94A3B8; padding: 16px 0 6px; margin-top: 8px; border-top: 1px solid {PALETTE['border']};'>

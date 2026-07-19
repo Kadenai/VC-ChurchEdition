@@ -1,6 +1,7 @@
 import os
 import shutil
 import json
+import time
 import urllib.parse
 import html
 import gradio as gr
@@ -32,11 +33,17 @@ i18n = I18nAuto(language="pt_BR")
 
 VIRALS_DIR = os.path.join(BASE_DIR, "VIRALS")
 
-# No Colab a pasta "Cortes IPB" (vídeos finais) fica DENTRO de VIRALS (no Drive).
-# Ela nunca deve aparecer como "projeto" nem entrar na limpeza.
+# Pasta legada "Cortes IPB" (exportação antiga): nunca deve aparecer como
+# "projeto" nem entrar na limpeza.
 from scripts.export_paths import CORTES_IPB_NAME, is_colab
 
 PROTECTED_VIRALS_NAMES = {CORTES_IPB_NAME, "_configuracoes", "_webui_assets"}
+
+# Sugestão automática de limpeza: só para lixo parado há 2 semanas; se o usuário
+# recusar, espera mais 2 semanas antes de perguntar de novo.
+CLEANUP_MIN_AGE_DAYS = 14
+CLEANUP_SNOOZE_DAYS = 14
+CLEANUP_STATE_PATH = os.path.join(BASE_DIR, "cleanup_state.json")
 
 
 # URL Mode: "fastapi" (default) or "gradio"
@@ -174,7 +181,7 @@ def _find_segment_video(project_folder_path, index, seg):
 
 # ---------------------------------------------------------------------------
 # Limpeza de "lixo" (arquivos gerados). Apaga SOMENTE o lixo óbvio e nunca
-# toca em: a pasta "Cortes IPB" (fica fora do projeto, no Desktop), no código,
+# toca em: a pasta legada "Cortes IPB", no código,
 # .venv, models, WEBUI_ASSETS (assets enviados), *_config.json, ui_settings.json,
 # api_config.json, nem no backup VC-ChurchEdition.
 # ---------------------------------------------------------------------------
@@ -249,11 +256,7 @@ def get_garbage_targets():
     # Filtro de segurança final
     return [t for t in targets if _is_safe_to_delete(t)]
 
-def preview_garbage():
-    """Retorna (texto_para_exibir, lista_de_alvos) SEM apagar nada."""
-    targets = get_garbage_targets()
-    if not targets:
-        return i18n("Nada para limpar — já está tudo limpo."), []
+def _garbage_report(targets):
     lines = []
     total = 0
     for p in targets:
@@ -264,8 +267,7 @@ def preview_garbage():
         lines.append(f"  {kind} {rel}  ({_human_size(sz)})")
     header = (
         f"{len(targets)} item(ns) serão apagados — {_human_size(total)} no total.\n"
-        "NÃO serão tocados: a pasta 'Cortes IPB', seus assets enviados, "
-        "as configurações e a chave de API.\n"
+        "NÃO serão tocados: seus assets enviados, as configurações e a chave de API.\n"
     )
     if is_colab():
         header += (
@@ -273,18 +275,67 @@ def preview_garbage():
             "apagar aqui apaga do Drive também.\n"
         )
     header += "\n"
-    return header + "\n".join(lines), targets
+    return header + "\n".join(lines)
 
-def clean_garbage():
-    """Apaga o lixo óbvio (re-escaneia no momento do clique). Retorna relatório."""
+def preview_garbage():
+    """Retorna (texto_para_exibir, lista_de_alvos) SEM apagar nada."""
     targets = get_garbage_targets()
+    if not targets:
+        return i18n("Nada para limpar — já está tudo limpo."), []
+    return _garbage_report(targets), targets
+
+
+def _newest_mtime(path):
+    """Data de modificação mais recente dentro de path (0 se não der para ler)."""
+    try:
+        newest = os.path.getmtime(path)
+    except OSError:
+        return 0
+    for root, _dirs, files in os.walk(path):
+        for f in files:
+            try:
+                newest = max(newest, os.path.getmtime(os.path.join(root, f)))
+            except OSError:
+                pass
+    return newest
+
+def _cleanup_snoozed_until():
+    try:
+        with open(CLEANUP_STATE_PATH, "r", encoding="utf-8") as f:
+            return float(json.load(f).get("snooze_until", 0))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return 0
+
+def snooze_cleanup():
+    """Usuário disse 'agora não': só voltar a sugerir daqui a 2 semanas."""
+    until = time.time() + CLEANUP_SNOOZE_DAYS * 86400
+    try:
+        with open(CLEANUP_STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump({"snooze_until": until}, f)
+    except OSError as e:
+        print(f"[library] não foi possível salvar cleanup_state.json: {e}")
+
+def preview_stale_garbage():
+    """Como preview_garbage(), mas só o lixo parado há CLEANUP_MIN_AGE_DAYS+ dias
+    e respeitando o 'agora não'. Usado na sugestão automática ao abrir o app."""
+    if _cleanup_snoozed_until() > time.time():
+        return "", []
+    cutoff = time.time() - CLEANUP_MIN_AGE_DAYS * 86400
+    targets = [p for p in get_garbage_targets() if _newest_mtime(p) < cutoff]
+    if not targets:
+        return "", []
+    return _garbage_report(targets), targets
+
+def clean_garbage(targets=None):
+    """Apaga o lixo óbvio. Sem argumento, re-escaneia no momento do clique."""
+    targets = get_garbage_targets() if targets is None else list(targets)
     if not targets:
         return i18n("Nada para limpar — já está tudo limpo.")
     deleted = 0
     freed = 0
     errors = []
     for p in targets:
-        if not _is_safe_to_delete(p):  # trava redundante por segurança
+        if not _is_safe_to_delete(p) or not os.path.exists(p):  # trava redundante por segurança
             continue
         try:
             sz = _path_size(p)

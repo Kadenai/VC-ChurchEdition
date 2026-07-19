@@ -443,20 +443,7 @@ def render_specific_video(json_full_path, feature_overrides=None, config_overrid
              except Exception as st_err:
                  print(f"[render_state] não foi possível registrar estado: {st_err}")
 
-             # Exportação final (Cortes IPB): Desktop no Windows; Drive no Colab
-             from scripts.export_paths import get_cortes_ipb_dir
-             cortes_ipb_dir = get_cortes_ipb_dir()
-             os.makedirs(cortes_ipb_dir, exist_ok=True)
-             
-             export_path = os.path.join(cortes_ipb_dir, os.path.basename(output_video_path))
-             try:
-                 import shutil
-                 shutil.copy2(output_video_path, export_path)
-                 export_msg = f" (Also saved to Cortes IPB: {os.path.basename(export_path)})"
-             except Exception as cp_err:
-                 export_msg = f" (Failed to copy to Cortes IPB: {cp_err})"
-             
-             return f"Success! Rendered: {os.path.basename(output_video_path)}{export_msg}"
+             return f"Success! Rendered: {os.path.basename(output_video_path)}"
         else:
              return f"Render Failed: {msg}"
 

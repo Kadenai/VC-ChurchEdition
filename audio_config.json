@@ -1,5 +1,5 @@
 {
-    "enabled": true,
+    "enabled": false,
     "audio_file_path": "WEBUI_ASSETS/audio/Fissura_de_Vidro_1781485065_16a11ef5.mp3",
     "base_volume": 10,
     "source_video_volume": 200.0,
