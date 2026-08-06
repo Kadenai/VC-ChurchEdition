@@ -265,7 +265,7 @@ def process_all_videos(source_folder, outro_config, output_folder):
     scale = outro_config.get("scale", 42)
     fade_duration = outro_config.get("fade_duration", 1)
     rounded_corners = outro_config.get("rounded_corners", 10)
-    outro_volume = outro_config.get("outro_volume", 100)
+    outro_volume = outro_config.get("outro_volume", 40)
 
     os.makedirs(output_folder, exist_ok=True)
 

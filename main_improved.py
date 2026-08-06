@@ -60,7 +60,7 @@ def get_subtitle_config(config_path=None):
         "gap_limit": 0.6,
         "mode": 'no_highlight', # Options: 'no_highlight', 'word_by_word', 'highlight'
         "highlight_color": f"&H{highlight_color_transparency}{COLORS['white']}&",
-        "vertical_position": 140, # 1=170(top), ... 4=60(default)
+        "vertical_position": 115, # 1=170(top), ... 4=60(default)
         "margin_h": 35,
         "alignment": 2, # 2=Center
         "bold": 1,

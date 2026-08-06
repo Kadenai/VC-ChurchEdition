@@ -4,7 +4,7 @@ import re
 import time
 
 
-def call_gemini_simple(prompt, api_key, model_name="gemini-3.5-flash"):
+def call_gemini_simple(prompt, api_key, model_name="gemini-3.6-flash"):
     """
     Simple Gemini call without thinkingConfig (not needed for text correction).
     Falls back through model sequence if needed.
@@ -13,7 +13,7 @@ def call_gemini_simple(prompt, api_key, model_name="gemini-3.5-flash"):
 
     # Mesma cadeia de call_gemini() em create_viral_segments.py — qualquer
     # chamada à API do Gemini deve seguir a mesma ordem de preferência.
-    fallback_sequence = [model_name, "gemini-3.5-flash", "gemini-3-flash-preview"]
+    fallback_sequence = [model_name, "gemini-3.6-flash", "gemini-3-flash-preview"]
     # Deduplicate while preserving order
     seen = set()
     models_to_try = []

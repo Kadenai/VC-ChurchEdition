@@ -22,7 +22,7 @@ from scripts.polish_transcription import (
 )
 
 
-def polish_json_file(json_path, api_key, model_name="gemini-3.5-flash", backup=True):
+def polish_json_file(json_path, api_key, model_name="gemini-3.6-flash", backup=True):
     """
     Polish a single subtitle JSON file in place using the configured AI.
 

@@ -31,7 +31,7 @@ SUBTITLE_PRESETS = {
         "underline": False,
         "strikeout": False,
         "border_style": 1,
-        "vertical_position": 140,
+        "vertical_position": 115,
         "margin_h": 35,
         "alignment": 2,
         "remove_punctuation": False

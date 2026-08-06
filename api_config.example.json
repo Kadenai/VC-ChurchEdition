@@ -2,7 +2,7 @@
     "selected_api": "gemini",
     "gemini": {
         "api_key": "SUA_KEY_AQUI",
-        "model": "gemini-3.5-flash",
+        "model": "gemini-3.6-flash",
         "chunk_size": 70000
     }
 }

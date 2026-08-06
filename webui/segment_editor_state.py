@@ -141,7 +141,7 @@ def _normalize_outro_config(config):
     cfg["scale"] = int(float(cfg.get("scale", 42) or 42))
     cfg["fade_duration"] = _clamp_float(cfg.get("fade_duration"), 1, 0, 30)
     cfg["rounded_corners"] = int(float(cfg.get("rounded_corners", 10) or 0))
-    cfg["outro_volume"] = _clamp_float(cfg.get("outro_volume"), 100, 0, 200)
+    cfg["outro_volume"] = _clamp_float(cfg.get("outro_volume"), 40, 0, 200)
     return cfg
 
 
@@ -166,7 +166,7 @@ def _default_subtitle_config(project_folder):
             "outline_thickness": 1,
             "shadow_color": "&H00000000&",
             "shadow_size": 1,
-            "vertical_position": 140,
+            "vertical_position": 115,
             "margin_h": 35,
             "alignment": 2,
             "bold": 1,
@@ -197,7 +197,7 @@ def _normalize_subtitle_config(config):
         cfg[key] = str(cfg.get(key) or default)
     cfg["outline_thickness"] = _clamp_float(cfg.get("outline_thickness"), 1, 0, 20)
     cfg["shadow_size"] = _clamp_float(cfg.get("shadow_size"), 1, 0, 20)
-    cfg["vertical_position"] = int(float(cfg.get("vertical_position", 140) or 0))
+    cfg["vertical_position"] = int(float(cfg.get("vertical_position", 115) or 0))
     cfg["margin_h"] = int(float(cfg.get("margin_h", 35) or 0))
     cfg["alignment"] = int(float(cfg.get("alignment", 2) or 2))
     cfg["bold"] = 1 if bool(cfg.get("bold", 0)) else 0

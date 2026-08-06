@@ -126,7 +126,7 @@ def _link_colab_persistent_configs():
                         "selected_api": "gemini",
                         "gemini": {
                             "api_key": "",
-                            "model": "gemini-3.5-flash",
+                            "model": "gemini-3.6-flash",
                             "chunk_size": 70000,
                         },
                     }, f, indent=4)
@@ -211,7 +211,7 @@ def kill_process():
     return i18n("No process running.")
 
 GEMINI_MODELS = [
-    'gemini-3.5-flash',
+    'gemini-3.6-flash',
     'gemini-3-flash-preview'
 ]
 
@@ -812,7 +812,7 @@ DEFAULT_UI_SETTINGS = {
     "is_bold": True,
     "is_italic": False,
     "is_uppercase": False,
-    "vertical_pos": 140,
+    "vertical_pos": 115,
     "margin_h": 35,
     "alignment": 2,
     "h_size": 30,
@@ -1573,7 +1573,7 @@ _global_js = """
                                     ${vcEditorSelect('subtitle','mode','Modo',[['highlight','Destaque'],['word_by_word','Palavra por palavra'],['no_highlight','Sem destaque']],'no_highlight')}
                                     ${vcEditorInput('subtitle','words_per_block','Palavras por bloco','number',4,'min="1" max="30" step="1"')}
                                     ${vcEditorInput('subtitle','gap_limit','Limite de pausa','number',0.6,'min="0" max="10" step="0.1"')}
-                                    ${vcEditorInput('subtitle','vertical_position','Posicao vertical','number',140,'min="0" max="700" step="1"')}
+                                    ${vcEditorInput('subtitle','vertical_position','Posicao vertical','number',115,'min="0" max="700" step="1"')}
                                     ${vcEditorInput('subtitle','margin_h','Margem horizontal','number',35,'min="0" max="500" step="1"')}
                                     ${vcEditorSelect('subtitle','alignment','Alinhamento',[['1','Esquerda'],['2','Centro'],['3','Direita']],'2')}
                                     ${vcEditorInput('subtitle','outline_color','Cor contorno','color','#000000')}
@@ -1638,7 +1638,7 @@ _global_js = """
                                     ${vcEditorFile('outro','overlay_image_path','Enviar imagem overlay','image/*')}
                                     ${vcEditorInput('outro','overlay_image_path','Caminho da imagem','text',vcDeepGet(configs.outro || {}, 'overlay_image_path', ''))}
                                     ${vcEditorInput('outro','fade_duration','Duracao do fade (s)','number',1,'min="0" max="30" step="0.1"')}
-                                    ${vcEditorInput('outro','outro_volume','Volume do outro (%)','number',100,'min="0" max="200" step="1"')}
+                                    ${vcEditorInput('outro','outro_volume','Volume do outro (%)','number',40,'min="0" max="200" step="1"')}
                                     ${vcEditorInput('outro','position_x','Imagem X','number',179,'min="-1080" max="1080" step="1"')}
                                     ${vcEditorInput('outro','position_y','Imagem Y','number',886,'min="-1920" max="1920" step="1"')}
                                     ${vcEditorInput('outro','scale','Escala imagem (%)','number',42,'min="1" max="500" step="1"')}
@@ -2324,7 +2324,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition")) as demo:
                         
                     gr.Markdown(f"### {i18n('Positioning & Layout')}")
                     with gr.Row():
-                        vertical_pos_input = gr.Slider(label=i18n("V-Pos (Margin V)"), minimum=0, maximum=500, value=ui_state.get("vertical_pos", 140))
+                        vertical_pos_input = gr.Slider(label=i18n("V-Pos (Margin V)"), minimum=0, maximum=500, value=ui_state.get("vertical_pos", 115))
                         margin_h_input = gr.Slider(label=i18n("H-Pos (Margin H)"), minimum=0, maximum=300, value=ui_state.get("margin_h", 35))
                         alignment_input = gr.Dropdown(choices=[(i18n("Left"), 1), (i18n("Center"), 2), (i18n("Right"), 3)], label=i18n("Alignment"), value=ui_state.get("alignment", 2))
                         gap_limit_input = gr.Slider(label=i18n("Gap Limit"), minimum=0.0, maximum=5.0, value=ui_state.get("gap", 0.6), step=0.1)
@@ -2821,7 +2821,7 @@ with gr.Blocks(title=i18n("Viral Cutter · Church Edition")) as demo:
                             outro_fade_input = gr.Slider(label=i18n("Duração do Fade (s)"), minimum=0.0, maximum=3.0, value=outro_cfg.get("fade_duration", 1), step=0.1)
                             outro_volume_input = gr.Slider(
                                 label=i18n("Volume do Vídeo de Encerramento (%)"),
-                                minimum=0, maximum=200, value=outro_cfg.get("outro_volume", 100), step=5,
+                                minimum=0, maximum=200, value=outro_cfg.get("outro_volume", 40), step=5,
                                 info=i18n("Só tem efeito quando o vídeo de Outro possui áudio próprio. 100% = volume original, 0% = mudo.")
                             )
 
@@ -3144,7 +3144,7 @@ if __name__ == "__main__":
                 with open(cfg_path, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
                 gem = cfg.get("gemini", {}) or {}
-                return gem.get("api_key") or None, gem.get("model") or "gemini-3.5-flash"
+                return gem.get("api_key") or None, gem.get("model") or "gemini-3.6-flash"
             except Exception:
                 return None, None
 

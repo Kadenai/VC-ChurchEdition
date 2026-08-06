@@ -187,7 +187,7 @@ def preprocess_transcript_for_ai(segments):
 
     return full_text.strip()
 
-def call_gemini(prompt, api_key, model_name='gemini-3.5-flash'):
+def call_gemini(prompt, api_key, model_name='gemini-3.6-flash'):
     import requests
     import time
     import re
@@ -197,7 +197,7 @@ def call_gemini(prompt, api_key, model_name='gemini-3.5-flash'):
     if model_name:
         models_to_try.append(model_name)
         
-    fallback_sequence = ["gemini-3.5-flash", "gemini-3-flash-preview"]
+    fallback_sequence = ["gemini-3.6-flash", "gemini-3-flash-preview"]
     for m in fallback_sequence:
         if m not in models_to_try:
             models_to_try.append(m)
@@ -709,7 +709,7 @@ def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode
         "selected_api": "gemini",
         "gemini": {
             "api_key": "",
-            "model": "gemini-3.5-flash",
+            "model": "gemini-3.6-flash",
             "chunk_size": 70000
         }
     }
@@ -730,7 +730,7 @@ def create(num_segments, viral_mode, themes, tempo_minimo, tempo_maximo, ai_mode
     if ai_mode == "gemini":
         cfg_chunk = config["gemini"].get("chunk_size", 70000)
         current_chunk_size = chunk_size_arg if chunk_size_arg and int(chunk_size_arg) > 0 else cfg_chunk
-        cfg_model = config["gemini"].get("model", "gemini-3.5-flash")
+        cfg_model = config["gemini"].get("model", "gemini-3.6-flash")
         model_name = model_name_arg if model_name_arg else cfg_model
         if not api_key: api_key = config["gemini"].get("api_key", "")
 

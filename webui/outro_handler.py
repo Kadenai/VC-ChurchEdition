@@ -20,7 +20,7 @@ def load_outro_config():
         "scale": 42,
         "fade_duration": 1,
         "rounded_corners": 10,
-        "outro_volume": 100
+        "outro_volume": 40
     }
 
     if os.path.exists(CONFIG_FILE):
@@ -36,7 +36,7 @@ def load_outro_config():
     defaults["overlay_image_path"] = resolve_existing_path(defaults.get("overlay_image_path"))
     return defaults
 
-def save_outro_config(enabled, outro_video_path, overlay_image_path, position_x, position_y, scale, fade_duration, rounded_corners, outro_volume=100):
+def save_outro_config(enabled, outro_video_path, overlay_image_path, position_x, position_y, scale, fade_duration, rounded_corners, outro_volume=40):
     existing_cfg = load_outro_config()
     old_video = existing_cfg.get("outro_video_path")
     old_overlay = existing_cfg.get("overlay_image_path")
