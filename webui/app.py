@@ -126,7 +126,7 @@ def _link_colab_persistent_configs():
                         "selected_api": "gemini",
                         "gemini": {
                             "api_key": "",
-                            "model": "gemini-3.6-flash",
+                            "model": "gemini-3.7-flash",
                             "chunk_size": 70000,
                         },
                     }, f, indent=4)
@@ -211,7 +211,7 @@ def kill_process():
     return i18n("No process running.")
 
 GEMINI_MODELS = [
-    'gemini-3.6-flash',
+    'gemini-3.7-flash',
     'gemini-3-flash-preview'
 ]
 
@@ -1199,47 +1199,6 @@ _global_js = """
         v.load();
     }
 
-    // Polish one segment's subtitles with AI (per-card button)
-    document.body.addEventListener("click", async (e) => {
-        let btn = e.target.closest('.polish-subs-btn');
-        if (!btn) return;
-        e.preventDefault();
-        e.stopPropagation();
-        if (btn._vcL) return;
-        const project = btn.getAttribute('data-project') || '';
-        const segment = btn.getAttribute('data-segment') || '';
-        if (!project || segment === '') return;
-        btn._vcL = true;
-        const oh = btn.innerHTML;
-        const oc = btn.style.color;
-        btn.innerHTML = '<div class="vc-spin"></div>';
-        btn.style.pointerEvents = 'none';
-        try {
-            const r = await fetch('/polish_segment_api?project=' + project + '&segment=' + encodeURIComponent(segment));
-            const d = await r.json();
-            if (d.success) {
-                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-                btn.classList.add('vc-ok');
-                // Find the card container and reload its video
-                let card = btn.closest('.viral-card') || btn.parentElement;
-                while (card && !card.querySelector('video')) card = card.parentElement;
-                vcReloadVideoInCard(card, d.video_url, d.download_name);
-                setTimeout(() => { btn.innerHTML = oh; btn.style.color = oc; btn.style.pointerEvents = ''; btn.classList.remove('vc-ok'); btn._vcL = false; }, 2500);
-            } else {
-                console.warn('Polish failed:', d.error);
-                btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>';
-                btn.classList.add('vc-err');
-                btn.title = 'Erro: ' + (d.error || 'falhou');
-                setTimeout(() => { btn.innerHTML = oh; btn.style.color = oc; btn.style.pointerEvents = ''; btn.classList.remove('vc-err'); btn._vcL = false; }, 4000);
-            }
-        } catch (err) {
-            console.warn('Polish error:', err);
-            btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
-            btn.classList.add('vc-err');
-            setTimeout(() => { btn.innerHTML = oh; btn.style.color = oc; btn.style.pointerEvents = ''; btn.classList.remove('vc-err'); btn._vcL = false; }, 4000);
-        }
-    }, true);
-
     // Polish ALL segments' subtitles with AI (toolbar button above gallery)
     document.body.addEventListener("click", async (e) => {
         const btn = e.target.closest('.polish-all-subs-btn');
@@ -1564,6 +1523,10 @@ _global_js = """
                         </div>
                         <div class="vc-segment-editor-panels">
                             <section class="vc-segment-editor-panel active" data-editor-panel="subtitle">
+                                <div class="vc-editor-section-title">Texto da legenda</div>
+                                <p style="font-size:12px;color:var(--vc-text-muted);margin:0 0 10px;line-height:1.5;">Corrige a transcricao deste corte com IA. Aplica na hora ao texto e a previa; o video so muda quando voce renderizar.</p>
+                                <button type="button" class="vc-editor-polish-btn" style="margin:0 0 16px;padding:9px 14px;background:var(--vc-grad);color:#fff;font-weight:800;border:0;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;">${vcIcon('wand', 16)}<span>Corrigir legenda com IA</span></button>
+                                <div class="vc-editor-section-title">Estilo</div>
                                 <div class="vc-editor-grid">
                                     ${vcEditorInput('subtitle','font','Fonte','text','Montserrat')}
                                     ${vcEditorInput('subtitle','base_size','Tamanho base','number',30,'min="8" max="120" step="1"')}
@@ -1647,7 +1610,7 @@ _global_js = """
                             </section>
                             <section class="vc-segment-editor-panel" data-editor-panel="margin">
                                 <div class="vc-editor-section-title">Margem de seguranca</div>
-                                <p style="font-size:12px;color:var(--vc-text-muted);margin:0 0 14px;line-height:1.5;">Quantos segundos entram antes e depois do corte limpo da IA. Positivo amplia o trecho, negativo apara. Reprocessa este video a partir do material original e re-renderiza mantendo os ajustes das outras abas.</p>
+                                <p style="font-size:12px;color:var(--vc-text-muted);margin:0 0 14px;line-height:1.5;">Quantos segundos entram antes e depois do corte limpo da IA. Positivo amplia o trecho, negativo apara. Aplicado em "Salvar e renderizar este video", que reprocessa o corte a partir do material original apenas se voce mudar estes valores.</p>
                                 <div class="vc-editor-grid">
                                     <label class="vc-editor-field">
                                         <span>Inicio (s) <span style="color:var(--vc-text-muted);font-weight:400;">+ antes / - apara</span></span>
@@ -1664,7 +1627,6 @@ _global_js = """
                                         </div>
                                     </label>
                                 </div>
-                                <button type="button" class="vc-editor-buffer-btn" style="margin-top:14px;padding:9px 14px;background:var(--vc-grad);color:#fff;font-weight:800;border:0;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;">${vcIcon('refresh', 16)}<span>Reprocessar margem</span></button>
                             </section>
                         </div>
                     </div>
@@ -1749,7 +1711,7 @@ _global_js = """
         const previewKind = vcPreviewKindForTab(kind || vcSegmentEditor.activeTab || 'subtitle');
         if (previewKind === 'audio') {
             const msg = (vcSegmentEditor.activeTab === 'margin')
-                ? 'A aba Margem reprocessa o corte a partir do material original. Use o botao "Reprocessar margem" para aplicar.'
+                ? 'A aba Margem nao tem preview visual. A nova margem entra em "Salvar e renderizar este video".'
                 : 'A aba Audio ainda nao tem preview visual. Os ajustes continuam salvos por video.';
             vcSetSegmentEditorPreview(msg, null, false);
             return;
@@ -1883,6 +1845,9 @@ _global_js = """
             btn.disabled = true;
             btn.innerHTML = '<div class="vc-spin" style="width:16px;height:16px;border-width:2px;border-top-color:#fff"></div><span>Renderizando...</span>';
         }
+        const root0 = document.getElementById('vc-segment-editor-overlay');
+        const startInput = root0 ? root0.querySelector('#vc-editor-buf-start') : null;
+        const endInput = root0 ? root0.querySelector('#vc-editor-buf-end') : null;
         try {
             await vcSaveSegmentEditorState(true);
             vcSegmentEditorStatus('Renderizando este video...');
@@ -1891,6 +1856,8 @@ _global_js = """
                 segment: vcSegmentEditor.segment,
                 configs: (((vcSegmentEditor.data || {}).state || {}).configs || {})
             };
+            if (startInput) body.buffer_start = vcBufferValue(startInput.value);
+            if (endInput) body.buffer_end = vcBufferValue(endInput.value);
             const r = await fetch('/segment_editor_render_api', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -1905,7 +1872,17 @@ _global_js = """
             if (!card) card = document.querySelector('.viral-card[data-segment="' + vcSegmentEditor.segment + '"]');
             vcReloadVideoInCard(card, d.video_url, d.download_name);
             if (d.features) vcSyncFeatureButtons(card, d.features);
-            vcSegmentEditorStatus('Renderizado e salvo como arquivo final.');
+            if (startInput && d.buffer_start_used !== undefined) {
+                startInput.value = d.buffer_start_used;
+                window.vcUpdateBufferSaldo(startInput);
+            }
+            if (endInput && d.buffer_end_used !== undefined) {
+                endInput.value = d.buffer_end_used;
+                window.vcUpdateBufferSaldo(endInput);
+            }
+            vcSegmentEditorStatus(d.margin_applied
+                ? 'Margem reprocessada e video renderizado.'
+                : 'Renderizado e salvo como arquivo final.');
             vcScheduleSegmentEditorPreview(vcSegmentEditor.activeTab || 'subtitle');
         } catch (err) {
             vcSegmentEditorStatus('Erro ao renderizar: ' + err.message, true);
@@ -1917,58 +1894,38 @@ _global_js = """
         }
     }
 
-    async function vcReprocessSegmentEditorMargin(btn) {
+    async function vcPolishSegmentEditorSubs(btn) {
         if (!vcSegmentEditor.data) return;
-        const root = document.getElementById('vc-segment-editor-overlay');
-        const startInput = root ? root.querySelector('#vc-editor-buf-start') : null;
-        const endInput = root ? root.querySelector('#vc-editor-buf-end') : null;
-        if (!startInput || !endInput) return;
-        const bufStart = vcBufferValue(startInput.value);
-        const bufEnd = vcBufferValue(endInput.value);
         const old = btn ? btn.innerHTML : '';
         if (btn) {
             btn.disabled = true;
-            btn.innerHTML = '<div class="vc-spin" style="width:16px;height:16px;border-width:2px;border-top-color:#fff"></div><span>Reprocessando...</span>';
+            btn.innerHTML = '<div class="vc-spin" style="width:16px;height:16px;border-width:2px;border-top-color:#fff"></div><span>Corrigindo...</span>';
         }
-        startInput.disabled = true;
-        endInput.disabled = true;
         try {
-            vcSegmentEditorStatus('Reprocessando margem deste video...');
+            vcSegmentEditorStatus('Corrigindo a legenda com IA...');
             const body = {
                 project: vcSegmentEditor.project,
-                segment: vcSegmentEditor.segment,
-                buffer_start: bufStart,
-                buffer_end: bufEnd,
-                configs: (((vcSegmentEditor.data || {}).state || {}).configs || {})
+                segment: vcSegmentEditor.segment
             };
-            const r = await fetch('/segment_editor_buffer_api', {
+            const r = await fetch('/segment_editor_polish_api', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(body)
             });
             const d = await r.json();
-            if (!d.success) throw new Error(d.error || 'Falha ao reprocessar margem');
+            if (!d.success) throw new Error(d.error || 'Falha ao corrigir');
             vcSegmentEditor.data = d;
-            if (d.buffer_start_used !== undefined) startInput.value = d.buffer_start_used;
-            if (d.buffer_end_used !== undefined) endInput.value = d.buffer_end_used;
-            window.vcUpdateBufferSaldo(startInput);
-            window.vcUpdateBufferSaldo(endInput);
-            vcReloadVideoInCard(root, d.video_url, d.download_name);
-            let card = vcSegmentEditor.card;
-            if (!card) card = document.querySelector('.viral-card[data-segment="' + vcSegmentEditor.segment + '"]');
-            vcReloadVideoInCard(card, d.video_url, d.download_name);
-            if (d.features) vcSyncFeatureButtons(card, d.features);
-            vcSegmentEditorStatus('Margem aplicada e video renderizado.');
-            vcScheduleSegmentEditorPreview(vcSegmentEditor.activeTab || 'subtitle');
+            const applied = (d.applied === undefined) ? '?' : d.applied;
+            const total = (d.total === undefined) ? '?' : d.total;
+            vcSegmentEditorStatus(applied + '/' + total + ' linhas corrigidas. Renderize para gravar no video.');
+            vcRefreshSegmentEditorPreview('subtitle');
         } catch (err) {
-            vcSegmentEditorStatus('Erro ao reprocessar margem: ' + err.message, true);
+            vcSegmentEditorStatus('Erro ao corrigir: ' + err.message, true);
         } finally {
             if (btn) {
                 btn.disabled = false;
                 btn.innerHTML = old;
             }
-            startInput.disabled = false;
-            endInput.disabled = false;
         }
     }
 
@@ -1999,10 +1956,10 @@ _global_js = """
             vcScheduleSegmentEditorPreview(vcSegmentEditor.activeTab);
             return;
         }
-        const marginBtn = e.target.closest('.vc-editor-buffer-btn');
-        if (marginBtn) {
+        const polishBtn = e.target.closest('.vc-editor-polish-btn');
+        if (polishBtn) {
             e.preventDefault();
-            vcReprocessSegmentEditorMargin(marginBtn);
+            vcPolishSegmentEditorSubs(polishBtn);
             return;
         }
         const renderBtn = e.target.closest('.vc-segment-editor-render');
@@ -3144,7 +3101,7 @@ if __name__ == "__main__":
                 with open(cfg_path, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
                 gem = cfg.get("gemini", {}) or {}
-                return gem.get("api_key") or None, gem.get("model") or "gemini-3.6-flash"
+                return gem.get("api_key") or None, gem.get("model") or "gemini-3.7-flash"
             except Exception:
                 return None, None
 
@@ -3406,6 +3363,10 @@ if __name__ == "__main__":
 
         @fastapi_app.post("/segment_editor_render_api")
         def segment_editor_render_api(payload: dict = Body(...)):
+            """Apply everything declared in the editor to this one video, in the
+            only order that is safe: re-cut the margin first (it rebuilds the
+            subtitle JSON from input.json), re-apply the AI correction if this
+            segment had one, then burn once with the per-segment configs."""
             try:
                 project_path, safe_project = _safe_project_path(payload.get("project"))
                 if not project_path:
@@ -3418,9 +3379,38 @@ if __name__ == "__main__":
 
                 from scripts.polish_segment_subs import find_segment_json
                 json_path = find_segment_json(project_path, segment)
-                if not json_path:
+
+                # 1. Margin: re-cut only when the requested value actually differs
+                #    from what is already on disk -- the re-cut is two ffmpeg
+                #    passes plus face detection, far too heavy to run every save.
+                seg = _segment_record(project_path, segment)
+                applied_start = int(seg.get("buffer_start_used", seg.get("buffer_seconds", 0)) or 0)
+                applied_end = int(seg.get("buffer_end_used", seg.get("buffer_seconds", 0)) or 0)
+                try:
+                    buffer_start = int(payload.get("buffer_start", applied_start) or 0)
+                    buffer_end = int(payload.get("buffer_end", applied_end) or 0)
+                except (TypeError, ValueError):
+                    return {"success": False, "error": "Margem invalida."}
+
+                margin_changed = (buffer_start != applied_start) or (buffer_end != applied_end)
+                if margin_changed:
+                    recut = _recut_segment_buffer(project_path, segment, buffer_start, buffer_end)
+                    if not recut.get("success"):
+                        return recut
+                    json_path = recut["json_output_path"]
+
+                if not json_path or not os.path.exists(json_path):
                     return {"success": False, "error": f"Sem JSON de legenda para o segmento {segment}."}
 
+                # 2. The re-cut rebuilt the JSON from input.json, discarding any AI
+                #    correction. Re-apply it so the margin never silently undoes it.
+                polish_note = None
+                if margin_changed and state.get("polished"):
+                    repolish = _polish_json_only(project_path, json_path, segment)
+                    if not repolish.get("success"):
+                        polish_note = f" (a correcao com IA nao pode ser reaplicada: {repolish.get('error')})"
+
+                # 3. Burn once, with this video's own configs.
                 from subtitle_editor import render_specific_video
                 msg = render_specific_video(json_path, feature_overrides=features, config_overrides=state.get("configs", {}))
                 if not (isinstance(msg, str) and msg.strip().lower().startswith("success")):
@@ -3430,8 +3420,9 @@ if __name__ == "__main__":
                 state = segment_editor_state.update_segment_state(project_path, segment, configs=state.get("configs", {}), features=applied_features)
                 return {
                     **_segment_editor_payload(project_path, safe_project, segment, state, json_path),
-                    "message": msg,
+                    "message": msg + (polish_note or ""),
                     "features": applied_features,
+                    "margin_applied": margin_changed,
                 }
             except Exception as e:
                 import traceback
@@ -3484,33 +3475,65 @@ if __name__ == "__main__":
                 traceback.print_exc()
                 return {"success": False, "error": str(e)}
 
-        def _polish_and_rerender(project_folder, json_path):
-            """Polish one subtitle JSON and re-burn the corresponding video.
-            Returns a dict with success/error."""
+        def _polish_json_only(project_folder, json_path, segment=None):
+            """Rewrite one subtitle JSON with AI. Burns nothing, touches no config.
+
+            Cheap enough (a single Gemini call, no ffmpeg) to run on demand from
+            the editor so the subtitle preview -- which regenerates the .ass from
+            this JSON -- shows the corrected text right away. The heavy burn is
+            left to the single "Salvar e renderizar" action.
+            """
             from scripts.polish_segment_subs import polish_json_file
             api_key, model_name = _load_gemini_config()
             if not api_key:
-                return {"success": False, "error": "Gemini API key not configured in api_config.json."}
+                return {"success": False, "error": "Chave da API Gemini nao configurada em api_config.json."}
 
-            polish_result = polish_json_file(json_path, api_key, model_name=model_name)
+            result = polish_json_file(json_path, api_key, model_name=model_name)
+            if not result.get("success"):
+                return {"success": False, "error": result.get("error") or "Falha na correcao."}
+
+            seg_index = segment if segment is not None else _segment_index_from_json(json_path)
+            if seg_index is not None:
+                segment_editor_state.update_segment_state(project_folder, int(seg_index), polished=True)
+            return {
+                "success": True,
+                "applied": result.get("applied"),
+                "total": result.get("total"),
+                "segment": seg_index,
+            }
+
+        def _polish_and_rerender(project_folder, json_path):
+            """Polish one subtitle JSON and re-burn the corresponding video.
+
+            Used by the batch "corrigir todas" action. Renders with the configs
+            already saved for the segment so per-video customizations survive.
+            Returns a dict with success/error."""
+            seg_index = _segment_index_from_json(json_path)
+            polish_result = _polish_json_only(project_folder, json_path, seg_index)
             if not polish_result.get("success"):
-                return {"success": False, "error": polish_result.get("error") or "Polish failed."}
+                return polish_result
+
+            state = None
+            if seg_index is not None:
+                state = segment_editor_state.get_segment_state(project_folder, seg_index, create=True)
 
             # Re-render the subtitled video so the burned legend reflects the fix.
             try:
                 from subtitle_editor import render_specific_video
-                render_msg = render_specific_video(json_path)
-                if isinstance(render_msg, str) and render_msg.strip().lower().startswith("success"):
-                    seg_index = _segment_index_from_json(json_path)
-                    if seg_index is not None:
-                        features = render_state.get_segment_features(project_folder, seg_index)
-                        state = segment_editor_state.default_segment_state(project_folder, seg_index)
-                        segment_editor_state.update_segment_state(
-                            project_folder,
-                            seg_index,
-                            configs=state.get("configs", {}),
-                            features=features,
-                        )
+                if state:
+                    render_msg = render_specific_video(
+                        json_path,
+                        feature_overrides=state.get("features"),
+                        config_overrides=state.get("configs", {}),
+                    )
+                else:
+                    render_msg = render_specific_video(json_path)
+                if isinstance(render_msg, str) and render_msg.strip().lower().startswith("success") and seg_index is not None:
+                    segment_editor_state.update_segment_state(
+                        project_folder,
+                        seg_index,
+                        features=render_state.get_segment_features(project_folder, seg_index),
+                    )
             except Exception as e:
                 return {
                     "success": False,
@@ -3525,25 +3548,37 @@ if __name__ == "__main__":
                 "applied": polish_result.get("applied"),
                 "total": polish_result.get("total"),
                 "render": render_msg,
-                "segment": _segment_index_from_json(json_path),
+                "segment": seg_index,
                 **_video_payload(rendered_video),
             }
 
-        @fastapi_app.get("/polish_segment_api")
-        def polish_segment_api(project: str, segment: int):
+        @fastapi_app.post("/segment_editor_polish_api")
+        def segment_editor_polish_api(payload: dict = Body(...)):
+            """Correct this segment's subtitles with AI, without rendering."""
             try:
-                safe_project = os.path.basename(project)
-                project_path = os.path.join(VIRALS_DIR, safe_project)
-                if not os.path.exists(project_path):
-                    return {"success": False, "error": f"Project not found: {safe_project}"}
+                project_path, safe_project = _safe_project_path(payload.get("project"))
+                if not project_path:
+                    return {"success": False, "error": f"Projeto nao encontrado: {safe_project}"}
+                segment = int(payload.get("segment", 0))
 
                 from scripts.polish_segment_subs import find_segment_json
                 json_path = find_segment_json(project_path, segment)
                 if not json_path:
-                    return {"success": False, "error": f"No subtitle JSON for segment {segment}."}
+                    return {"success": False, "error": f"Sem JSON de legenda para o segmento {segment}."}
 
-                return _polish_and_rerender(project_path, json_path)
+                result = _polish_json_only(project_path, json_path, segment)
+                if not result.get("success"):
+                    return result
+
+                state = segment_editor_state.get_segment_state(project_path, segment, create=True)
+                return {
+                    **_segment_editor_payload(project_path, safe_project, segment, state, json_path),
+                    "applied": result.get("applied"),
+                    "total": result.get("total"),
+                }
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 return {"success": False, "error": str(e)}
 
         @fastapi_app.get("/polish_all_segments_api")
@@ -3755,22 +3790,28 @@ if __name__ == "__main__":
                 json_output_path = recut["json_output_path"]
                 # Re-render burned subtitles (includes watermark, outro, audio)
                 if os.path.exists(json_output_path):
+                    # Re-cutting rebuilds the JSON from input.json, so an AI
+                    # correction on this segment has just been discarded.
+                    state = segment_editor_state.get_segment_state(project_path, int(segment), create=True)
+                    if state.get("polished"):
+                        _polish_json_only(project_path, json_output_path, int(segment))
                     try:
                         from subtitle_editor import render_specific_video
-                        render_msg = render_specific_video(json_output_path)
+                        render_msg = render_specific_video(
+                            json_output_path,
+                            feature_overrides=state.get("features"),
+                            config_overrides=state.get("configs", {}),
+                        )
                         print(f"[BUFFER] Re-render result: {render_msg}")
                     except Exception as render_err:
                         return {"success": False, "error": f"Re-render failed: {render_err}"}
                     if not (isinstance(render_msg, str) and render_msg.strip().lower().startswith("success")):
                         return {"success": False, "error": render_msg or "Re-render failed."}
                     try:
-                        features = render_state.get_segment_features(project_path, int(segment))
-                        state = segment_editor_state.default_segment_state(project_path, int(segment))
                         segment_editor_state.update_segment_state(
                             project_path,
                             int(segment),
-                            configs=state.get("configs", {}),
-                            features=features,
+                            features=render_state.get_segment_features(project_path, int(segment)),
                         )
                     except Exception as editor_state_err:
                         print(f"[segment_editor_state] nao foi possivel sincronizar estado do buffer: {editor_state_err}")
@@ -3791,53 +3832,6 @@ if __name__ == "__main__":
                     **_video_payload(rendered_video),
                 }
 
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                return {"success": False, "error": str(e)}
-
-        @fastapi_app.post("/segment_editor_buffer_api")
-        def segment_editor_buffer_api(payload: dict = Body(...)):
-            """Re-cut a segment with a new safety margin from the unified editor,
-            re-rendering with THIS video's per-segment configs so the editor's
-            customizations (subtitle style, watermark, audio, outro) survive the
-            re-cut -- unlike the library card, which resets to defaults."""
-            try:
-                project_path, safe_project = _safe_project_path(payload.get("project"))
-                if not project_path:
-                    return {"success": False, "error": f"Projeto nao encontrado: {safe_project}"}
-                segment = int(payload.get("segment", 0))
-                try:
-                    buffer_start = int(payload.get("buffer_start", 0) or 0)
-                    buffer_end = int(payload.get("buffer_end", 0) or 0)
-                except (TypeError, ValueError):
-                    return {"success": False, "error": "Margem invalida."}
-
-                current = segment_editor_state.get_segment_state(project_path, segment, create=True)
-                configs = payload.get("configs") if isinstance(payload.get("configs"), dict) else current.get("configs", {})
-                features = segment_editor_state.features_from_configs(configs)
-                state = segment_editor_state.update_segment_state(project_path, segment, configs=configs, features=features)
-
-                recut = _recut_segment_buffer(project_path, segment, buffer_start, buffer_end)
-                if not recut.get("success"):
-                    return recut
-
-                json_output_path = recut["json_output_path"]
-                if not os.path.exists(json_output_path):
-                    return {"success": False, "error": f"Sem JSON de legenda para o segmento {segment}."}
-
-                from subtitle_editor import render_specific_video
-                msg = render_specific_video(json_output_path, feature_overrides=features, config_overrides=state.get("configs", {}))
-                if not (isinstance(msg, str) and msg.strip().lower().startswith("success")):
-                    return {"success": False, "error": msg or "Falha ao renderizar."}
-
-                applied_features = render_state.get_segment_features(project_path, segment)
-                state = segment_editor_state.update_segment_state(project_path, segment, configs=state.get("configs", {}), features=applied_features)
-                return {
-                    **_segment_editor_payload(project_path, safe_project, segment, state, json_output_path),
-                    "message": msg,
-                    "features": applied_features,
-                }
             except Exception as e:
                 import traceback
                 traceback.print_exc()
@@ -3914,13 +3908,7 @@ if __name__ == "__main__":
                     rendered_video = _rendered_video_for_json(project_path, json_path)
                     features = render_state.get_segment_features(project_path, segment)
                     try:
-                        state = segment_editor_state.default_segment_state(project_path, segment)
-                        segment_editor_state.update_segment_state(
-                            project_path,
-                            segment,
-                            configs=state.get("configs", {}),
-                            features=features,
-                        )
+                        segment_editor_state.update_segment_state(project_path, segment, features=features)
                     except Exception as editor_state_err:
                         print(f"[segment_editor_state] nao foi possivel sincronizar estado: {editor_state_err}")
                     return {"success": True, "message": msg, "features": features, **_video_payload(rendered_video)}
@@ -3971,7 +3959,7 @@ if __name__ == "__main__":
         # Polish Subs, Adjust Buffer, Export XML) returns 404 and the
         # gallery hangs when the user switches to that tab.
         attach_extra_routes(app)
-        print("All API routes mounted (apply_feature, polish_segment, adjust_buffer).")
+        print("All API routes mounted (apply_feature, segment_editor_polish, adjust_buffer).")
         if share_url:
             print(f"Public URL: {share_url}")
 

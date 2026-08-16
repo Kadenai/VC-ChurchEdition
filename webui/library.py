@@ -480,16 +480,6 @@ def generate_project_gallery(project_path_name, is_full_path=False):
                     elif val < 85: score_color = PALETTE["warning"]
             except: pass
 
-            # Polish Subs Button (AI correction for this segment's subtitles)
-            try:
-                proj_name_polish = urllib.parse.quote(os.path.basename(project_path_name), safe="")
-                polish_svg = icon("wand", 22)
-                polish_btn_title = i18n("Corrigir legenda com IA")
-                escaped_polish_title = html.escape(polish_btn_title, quote=True)
-                polish_btn = f'<button type="button" class="polish-subs-btn" data-project="{proj_name_polish}" data-segment="{i}" style="color: var(--vc-text-muted); display: flex; align-items: center; justify-content: center; padding: 5px; border-radius: 50%; transition: color 0.2s; cursor: pointer; background: transparent; border: none; margin: 0;" title="{escaped_polish_title}" aria-label="{escaped_polish_title}">{polish_svg}</button>'
-            except Exception:
-                polish_btn = ""
-
             try:
                 proj_name_edit = urllib.parse.quote(os.path.basename(project_path_name), safe="")
                 edit_title = html.escape(i18n("Editar este vídeo"), quote=True)
@@ -602,7 +592,6 @@ def generate_project_gallery(project_path_name, is_full_path=False):
                         <span style="font-size: 28px; font-weight: 900; line-height: 1; color: {score_color}; font-family: sans-serif;">{score}</span>
                         <div style="display: flex; align-items: center; gap: 4px;">
                             {edit_btn}
-                            {polish_btn}
                             {download_link}
                         </div>
                     </div>

@@ -246,9 +246,27 @@ def default_segment_state(project_folder, index):
             "outro": outro_cfg,
             "subtitle": subtitle_cfg,
         },
+        "polished": False,
         "created_at": int(time.time()),
         "updated_at": int(time.time()),
     }
+
+
+def was_polished_before_flag(project_folder, index):
+    """True if this segment's subtitle JSON has an AI-polish backup on disk.
+
+    Projects polished before the `polished` flag existed have no flag stored,
+    but polish_json_file always leaves a *.original.json next to the JSON, so
+    the backup doubles as the marker for them.
+    """
+    try:
+        from scripts.polish_segment_subs import find_segment_json
+        json_path = find_segment_json(project_folder, index)
+    except Exception:
+        return False
+    if not json_path:
+        return False
+    return os.path.exists(json_path.replace(".json", ".original.json"))
 
 
 def get_segment_state(project_folder, index, create=True):
@@ -262,11 +280,18 @@ def get_segment_state(project_folder, index, create=True):
     if not segment_state:
         return default_segment_state(project_folder, index)
     segment_state.setdefault("features", {})
+    if "polished" not in segment_state:
+        # Seed once for states written before the flag existed, and persist it --
+        # update_segment_state re-reads from disk, so an in-memory-only guess
+        # would be lost on the very next write.
+        segment_state["polished"] = was_polished_before_flag(project_folder, index)
+        save_state(project_folder, data)
+    segment_state["polished"] = bool(segment_state["polished"])
     segment_state["configs"] = normalize_configs(project_folder, segment_state.get("configs"))
     return segment_state
 
 
-def update_segment_state(project_folder, index, configs=None, features=None):
+def update_segment_state(project_folder, index, configs=None, features=None, polished=None):
     data = load_state(project_folder)
     segments = data.setdefault("segments", {})
     key = str(index)
@@ -275,6 +300,9 @@ def update_segment_state(project_folder, index, configs=None, features=None):
         current["configs"] = normalize_configs(project_folder, configs)
     if features is not None:
         current["features"] = {k: bool(features.get(k, False)) for k in FEATURE_KEYS}
+    if polished is not None:
+        current["polished"] = bool(polished)
+    current.setdefault("polished", False)
     current["updated_at"] = int(time.time())
     segments[key] = current
     save_state(project_folder, data)
